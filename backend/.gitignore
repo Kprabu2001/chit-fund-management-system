@@ -1,0 +1,24 @@
+# Python Virtual Environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment configuration
+.env
+.env.local
+
+# Django media/static files
+staticfiles/
+media/
+
+# IDE / Editor folders
+.vscode/
+.idea/
+*.swp
