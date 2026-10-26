@@ -289,7 +289,7 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(45000)
       });
       const data = await parseJsonResponse(res);
       if (!res.ok) {
@@ -323,7 +323,7 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, otp }),
-        signal: AbortSignal.timeout(30000)
+        signal: AbortSignal.timeout(45000)
       });
       const data = await parseJsonResponse(res);
       if (!res.ok) {
@@ -359,7 +359,7 @@ export const api = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(45000)
       });
       const data = await parseJsonResponse(res);
       if (!res.ok) {
@@ -488,7 +488,7 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await res.json();
     if (!res.ok) {
@@ -504,7 +504,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/schemes/${schemeId}/`, {
       method: 'DELETE',
       headers: getHeaders(),
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(45000)
     });
     if (!res.ok) {
       let msg = 'Failed to remove scheme.';
@@ -522,7 +522,7 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ slot_number: slotNumber }),
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await res.json();
     if (!res.ok) {
@@ -575,7 +575,7 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ payment_method: method }),
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await res.json();
     if (!res.ok) {
@@ -593,7 +593,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/payments/${paymentId}/create-qr/`, {
       method: 'POST',
       headers: getHeaders(),
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await parseJsonResponse(res);
     if (!res.ok) {
@@ -612,7 +612,7 @@ export const api = {
     const query = qrId ? `?qr_id=${encodeURIComponent(qrId)}` : '';
     const res = await fetch(`${BASE_URL}/payments/${paymentId}/qr-status/${query}`, {
       headers: getHeaders(),
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await parseJsonResponse(res);
     if (!res.ok) {
@@ -632,7 +632,7 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ qr_id: qrId }),
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await parseJsonResponse(res);
     if (!res.ok) {
@@ -649,7 +649,7 @@ export const api = {
     const res = await fetch(`${BASE_URL}/payments/${paymentId}/reconcile/`, {
       method: 'POST',
       headers: getHeaders(),
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await res.json();
     if (!res.ok) {
@@ -666,7 +666,7 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ scope }),
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(45000)
     });
     const data = await res.json();
     if (!res.ok) {
