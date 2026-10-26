@@ -119,15 +119,46 @@ def generate_monthly_dues(today=None, due_day=None):
     return created
 
 
-def run_daily_maintenance(force=False):
-    """Run generation + status sync once per calendar day (cheap to call on every request)."""
+def _maintenance_job(today):
     global _last_run
-    today = datetime.date.today()
-    if not force and _last_run == today:
-        return
-    with _lock:
-        if not force and _last_run == today:
-            return
+    from django.db import close_old_connections
+    try:
         generate_monthly_dues(today)
         sync_payment_statuses(today)
         _last_run = today
+    except Exception:  # never crash a request thread; will retry on a later request
+        import logging
+        logging.getLogger(__name__).exception('Daily maintenance failed')
+    finally:
+        close_old_connections()
+        _running.clear()
+
+
+_running = threading.Event()
+
+
+def run_daily_maintenance(force=False):
+    """
+    Run generation + status sync once per calendar day.
+
+    force=True runs synchronously (management commands, tests). Otherwise the work runs in a
+    background thread so API requests are never blocked by it (it used to loop over every
+    ticket against the remote DB on the first request after each restart, causing timeouts).
+    """
+    today = datetime.date.today()
+    if force:
+        with _lock:
+            generate_monthly_dues(today)
+            sync_payment_statuses(today)
+            globals()['_last_run'] = today
+        return
+    if _last_run == today:
+        return
+    import sys
+    if 'test' in sys.argv:  # keep the test suite deterministic: no background threads
+        return
+    with _lock:
+        if _last_run == today or _running.is_set():
+            return
+        _running.set()
+    threading.Thread(target=_maintenance_job, args=(today,), daemon=True).start()

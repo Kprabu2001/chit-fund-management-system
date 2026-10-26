@@ -22,6 +22,29 @@ if (typeof window !== 'undefined' && !window.__atsFetchPatched) {
   };
 }
 
+
+// Fetch with a generous timeout + automatic retry. Render free tier cold-starts and the first
+// request of the day can take well over 3s, so short timeouts silently dropped real data.
+const READ_TIMEOUT_MS = 45000;
+const fetchWithRetry = async (url, options = {}, { timeout = READ_TIMEOUT_MS, retries = 2 } = {}) => {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, { ...options, signal: AbortSignal.timeout(timeout) });
+      // 502/503/504 = Render still waking up -> retry
+      if (res.status >= 502 && res.status <= 504 && attempt < retries) {
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+    }
+  }
+  throw lastErr || new Error('Network request failed');
+};
+
 const getToken = () => {
   return localStorage.getItem(TOKEN_KEY);
 };
@@ -394,10 +417,7 @@ export const api = {
   // --- 2. Value Tiers ---
   async getTiers() {
     try {
-      const res = await fetch(`${BASE_URL}/tiers/`, {
-        headers: getHeaders(),
-        signal: AbortSignal.timeout(3000)
-      });
+      const res = await fetchWithRetry(`${BASE_URL}/tiers/`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) return data.map(normalizeTier);
@@ -413,10 +433,7 @@ export const api = {
     let rawList = [];
     try {
       const url = tier && tier !== 'all' ? `${BASE_URL}/schemes/?tier=${tier}` : `${BASE_URL}/schemes/`;
-      const res = await fetch(url, {
-        headers: getHeaders(),
-        signal: AbortSignal.timeout(3000)
-      });
+      const res = await fetchWithRetry(url, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
@@ -522,10 +539,7 @@ export const api = {
   async getTickets(userId) {
     try {
       const url = userId ? `${BASE_URL}/tickets/?user_id=${userId}` : `${BASE_URL}/tickets/`;
-      const res = await fetch(url, {
-        headers: getHeaders(),
-        signal: AbortSignal.timeout(3000)
-      });
+      const res = await fetchWithRetry(url, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) return data.map(normalizeTicket);
@@ -544,18 +558,16 @@ export const api = {
       if (filters.status && filters.status !== 'ALL') params.append('status', filters.status);
       if (filters.search) params.append('search', filters.search);
 
-      const res = await fetch(`${BASE_URL}/payments/?${params.toString()}`, {
-        headers: getHeaders(),
-        signal: AbortSignal.timeout(3000)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) return data.map(normalizePayment);
-      }
+      const res = await fetchWithRetry(`${BASE_URL}/payments/?${params.toString()}`, { headers: getHeaders() });
+      if (!res.ok) throw new Error(`Payments request failed (${res.status})`);
+      const data = await res.json();
+      if (Array.isArray(data)) return data.map(normalizePayment);
+      if (data && Array.isArray(data.results)) return data.results.map(normalizePayment);
+      throw new Error('Unexpected payments response');
     } catch (e) {
-      // Fallback
+      // Do NOT pretend there are no records: let the caller keep old data and show an error.
+      throw e;
     }
-    return [];
   },
 
   async payInstallment(paymentId, method = 'UPI (Instant QR)') {
@@ -666,11 +678,9 @@ export const api = {
   // --- 6. Overview & Admin Stats ---
   async getOverviewStats(userId = 'usr_01') {
     try {
-      const res = await fetch(`${BASE_URL}/overview-stats/?user_id=${userId}`, {
-        headers: getHeaders(),
-        signal: AbortSignal.timeout(3000)
-      });
-      if (res.ok) {
+      const res = await fetchWithRetry(`${BASE_URL}/overview-stats/?user_id=${userId}`, { headers: getHeaders() });
+      if (!res.ok) throw new Error(`Overview stats request failed (${res.status})`);
+      {
         const data = await res.json();
         const u = data.user_stats || {};
         const a = data.admin_stats || {};
@@ -704,12 +714,9 @@ export const api = {
         };
       }
     } catch (e) {
-      // Fallback
+      // No hardcoded demo numbers: surface the failure to the caller.
+      throw e;
     }
-    return {
-      user_stats: { total_monthly_paid: 129800, upcoming_dues: 80050, dividend_savings: 10200, active_tickets_count: 5 },
-      admin_stats: { gross_turnover: 1870000, total_monthly_paid_collected: 145000, pending_dues: 80050, upcoming_dues: 22500, active_subscribers: 3, active_tickets_total: 5 }
-    };
   },
 
   // --- 8. Users & Directory ---
@@ -744,10 +751,7 @@ export const api = {
 
   async getUsers() {
     try {
-      const res = await fetch(`${BASE_URL}/users/`, {
-        headers: getHeaders(),
-        signal: AbortSignal.timeout(3000)
-      });
+      const res = await fetchWithRetry(`${BASE_URL}/users/`, { headers: getHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) return data.map(normalizeUser);

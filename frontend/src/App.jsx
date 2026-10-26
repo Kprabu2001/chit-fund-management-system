@@ -81,16 +81,22 @@ export default function App() {
     }
     setCurrentUser(activeUser);
 
-    const allUsers = await api.getUsers();
-    setUsers(allUsers);
-
-    const [loadedTiers, loadedSchemes, loadedTickets, loadedPayments, loadedStats] = await Promise.all([
+    const [usersRes, tiersRes, schemesRes, ticketsRes, paymentsRes, statsRes] = await Promise.allSettled([
+      api.getUsers(),
       api.getTiers(),
       api.getSchemes(),
       api.getTickets(activeUser?.role === 'admin' ? null : activeUser?.id),
       api.getPayments(activeUser?.role === 'admin' ? {} : { userId: activeUser?.id }),
       api.getOverviewStats(activeUser?.id)
     ]);
+    const allUsers = usersRes.status === 'fulfilled' ? usersRes.value : [];
+    const loadedTiers = tiersRes.status === 'fulfilled' ? tiersRes.value : [];
+    const loadedSchemes = schemesRes.status === 'fulfilled' ? schemesRes.value : [];
+    const loadedTickets = ticketsRes.status === 'fulfilled' ? ticketsRes.value : [];
+    setUsers(allUsers);
+    if (paymentsRes.status === 'rejected' || statsRes.status === 'rejected') {
+      showToast('Could not load payment data from the server. Please refresh in a moment.', 'error');
+    }
 
     // Keep every scheme (dedupe by id only) - several chits can share the same amount.
     const uniqueLoadedSchemes = (loadedSchemes || []).filter((s, idx, arr) => {
@@ -101,8 +107,8 @@ export default function App() {
     setTiers(loadedTiers);
     setSchemes(uniqueLoadedSchemes);
     setTickets(loadedTickets);
-    setPayments(loadedPayments);
-    setStats(loadedStats);
+    if (paymentsRes.status === 'fulfilled') setPayments(paymentsRes.value);
+    if (statsRes.status === 'fulfilled') setStats(statsRes.value);
   };
 
   // Members: quietly refresh every 30s so admin reminders show up in the bell
