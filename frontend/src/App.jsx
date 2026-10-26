@@ -82,7 +82,7 @@ export default function App() {
     setCurrentUser(activeUser);
 
     const [usersRes, tiersRes, schemesRes, ticketsRes, paymentsRes, statsRes] = await Promise.allSettled([
-      api.getUsers(),
+      activeUser?.role === 'admin' ? api.getUsers() : Promise.resolve([activeUser]),  // /users/ list is admin-only (403 for members)
       api.getTiers(),
       api.getSchemes(),
       api.getTickets(activeUser?.role === 'admin' ? null : activeUser?.id),
