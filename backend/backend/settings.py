@@ -1,4 +1,4 @@
-```python
+
 """
 Django settings for AuctionTicket Pro backend project.
 """
@@ -327,4 +327,4 @@ RAZORPAY_WEBHOOK_SECRET = os.getenv(
     "RAZORPAY_WEBHOOK_SECRET",
     "",
 )
-```
+
