@@ -479,7 +479,8 @@ class AuctionSchemeViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Run model-level validation (clean()) before saving via API."""
-        instance = serializer.save()
+        # New schemes open for enrolment: no dues are generated until every slot is filled.
+        instance = serializer.save(status='enrolling', booked_slots=0, current_month=1)
         try:
             instance.full_clean()
         except Exception as e:
@@ -526,7 +527,7 @@ class AuctionSchemeViewSet(viewsets.ModelViewSet):
                     'error': f'Slot number #{slot_number} is out of bounds (1 – {scheme.total_slots}).'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            if scheme.status != 'active':
+            if scheme.status not in ('active', 'enrolling'):
                 return Response({'error': f'This scheme is {scheme.status} and not open for booking.'}, status=status.HTTP_400_BAD_REQUEST)
 
             if scheme.booked_slots >= scheme.total_slots:
@@ -559,32 +560,72 @@ class AuctionSchemeViewSet(viewsets.ModelViewSet):
             scheme.booked_slots += 1
             scheme.save()
 
-            # Create due payments for every month already run (back payments, full
-            # installment, no dividend) plus the current month.
             payment = None
-            for m in range(1, scheme.current_month + 1):
-                p, _ = MonthlyPayment.objects.get_or_create(
-                    id=f"PAY-{ticket_id}-M{m}",
-                    defaults={
-                        'ticket': ticket,
-                        'scheme': scheme,
-                        'user': user_profile,
-                        'month_number': m,
-                        'month_name': f"Month {m}",
-                        'base_amount': scheme.monthly_installment,
-                        'dividend_discount': Decimal('0.00'),
-                        'net_payable': scheme.monthly_installment,
-                        'due_date': (datetime.date.today() + datetime.timedelta(days=10)).strftime('%Y-%m-%d'),
-                        'status': 'DUE'
-                    }
-                )
-                if m == scheme.current_month:
-                    payment = p
+            scheme_started = False
+            if scheme.status == 'enrolling':
+                # Chit not full yet: members are only enrolled, NO dues are created.
+                # Once the last slot is taken, the scheme starts and Month 1 dues
+                # are generated for every member at the same time.
+                if scheme.booked_slots >= scheme.total_slots:
+                    scheme.status = 'active'
+                    scheme.current_month = 1
+                    scheme.save()
+                    due_date = (datetime.date.today() + datetime.timedelta(days=10)).strftime('%Y-%m-%d')
+                    for t in Ticket.objects.filter(scheme=scheme).select_related('user'):
+                        p, _ = MonthlyPayment.objects.get_or_create(
+                            id=f"PAY-{t.id}-M1",
+                            defaults={
+                                'ticket': t,
+                                'scheme': scheme,
+                                'user': t.user,
+                                'month_number': 1,
+                                'month_name': 'Month 1',
+                                'base_amount': scheme.monthly_installment,
+                                'dividend_discount': Decimal('0.00'),
+                                'net_payable': scheme.monthly_installment,
+                                'due_date': due_date,
+                                'status': 'DUE',
+                            },
+                        )
+                        if t.id == ticket.id:
+                            payment = p
+                    scheme_started = True
+            else:
+                # Already-running scheme (legacy / late joiner): back payments for every
+                # month already run plus the current month.
+                for m in range(1, scheme.current_month + 1):
+                    p, _ = MonthlyPayment.objects.get_or_create(
+                        id=f"PAY-{ticket_id}-M{m}",
+                        defaults={
+                            'ticket': ticket,
+                            'scheme': scheme,
+                            'user': user_profile,
+                            'month_number': m,
+                            'month_name': f"Month {m}",
+                            'base_amount': scheme.monthly_installment,
+                            'dividend_discount': Decimal('0.00'),
+                            'net_payable': scheme.monthly_installment,
+                            'due_date': (datetime.date.today() + datetime.timedelta(days=10)).strftime('%Y-%m-%d'),
+                            'status': 'DUE'
+                        }
+                    )
+                    if m == scheme.current_month:
+                        payment = p
+
+        remaining = scheme.total_slots - scheme.booked_slots
+        if scheme_started:
+            message = f'Ticket #{slot_number} booked. {scheme.name} is now full - Month 1 dues have been generated for all members!'
+        elif payment is None:
+            message = (f'Successfully enrolled in Ticket #{slot_number} for {scheme.name}! '
+                       f'Dues start once all {scheme.total_slots} members join ({remaining} slot(s) remaining).')
+        else:
+            message = f'Successfully enrolled in Ticket #{slot_number} for {scheme.name}!'
 
         return Response({
-            'message': f'Successfully enrolled in Ticket #{slot_number} for {scheme.name}!',
+            'message': message,
             'ticket': TicketSerializer(ticket).data,
-            'payment': MonthlyPaymentSerializer(payment).data
+            'payment': MonthlyPaymentSerializer(payment).data if payment else None,
+            'scheme_started': scheme_started,
         }, status=status.HTTP_201_CREATED)
 
 

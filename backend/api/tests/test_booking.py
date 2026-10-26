@@ -78,3 +78,49 @@ class TicketBookingTests(APITestCase):
         res = self.client.post(f'/api/schemes/{self.scheme.id}/book_slot/', {'slot_number': 1})
         self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('full', res.data['error'])
+
+
+class EnrollingSchemeDueTests(APITestCase):
+    """New schemes start 'enrolling'; dues appear only once every slot is filled."""
+
+    def setUp(self):
+        self.tier = ValueTier.objects.create(
+            id='bronze', name='Bronze Tier', range_label='50k - 1L',
+            min_val=Decimal('50000.00'), max_val=Decimal('100000.00'))
+        self.scheme = AuctionScheme.objects.create(
+            id='SCH-ENR-1', name='Enrolling Scheme', tier=self.tier, status='enrolling',
+            total_value=Decimal('15000.00'), duration_months=3, monthly_installment=Decimal('5000.00'),
+            total_slots=3, booked_slots=0)
+        self.users = []
+        for i in range(3):
+            u = User.objects.create_user(username=f'm{i}@x.com', email=f'm{i}@x.com', password='pw')
+            prof = UserProfile.objects.create(id=f'm_{i}', user=u, name=f'Member {i}',
+                                              email=f'm{i}@x.com', phone=f'90000000{i}0', role='user')
+            self.users.append((Token.objects.create(user=u), prof))
+
+    def _book(self, idx, slot):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.users[idx][0].key}')
+        return self.client.post(f'/api/schemes/{self.scheme.id}/book_slot/', {'slot_number': slot})
+
+    def test_no_dues_until_scheme_full(self):
+        res = self._book(0, 1)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(res.data['payment'])
+        res = self._book(1, 2)
+        self.assertIsNone(res.data['payment'])
+        self.assertEqual(MonthlyPayment.objects.filter(scheme=self.scheme).count(), 0)
+        self.scheme.refresh_from_db()
+        self.assertEqual(self.scheme.status, 'enrolling')
+
+    def test_dues_generated_for_everyone_when_last_member_joins(self):
+        self._book(0, 1)
+        self._book(1, 2)
+        res = self._book(2, 3)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(res.data['scheme_started'])
+        self.scheme.refresh_from_db()
+        self.assertEqual(self.scheme.status, 'active')
+        self.assertEqual(self.scheme.current_month, 1)
+        pays = MonthlyPayment.objects.filter(scheme=self.scheme)
+        self.assertEqual(pays.count(), 3)
+        self.assertTrue(all(p.month_number == 1 and p.status == 'DUE' for p in pays))

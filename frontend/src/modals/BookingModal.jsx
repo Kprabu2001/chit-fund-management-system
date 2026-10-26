@@ -107,7 +107,7 @@ export default function BookingModal({
         {selectedSlot && (
           <div style={{ background: 'var(--accent-tint-soft)', border: '1px solid var(--accent-tint-border)', borderRadius: 'var(--radius-sm)', padding: '0.85rem', margin: '1rem 0', textAlign: 'center' }}>
             <span style={{ color: 'var(--text-main)', fontSize: '0.9rem' }}>
-              Selected Ticket: <strong style={{ color: 'var(--cyan-400)' }}>#{String(selectedSlot).padStart(2, '0')}</strong> • 1st Installment Due: {formatINR(scheme.monthlyInstallment || scheme.monthly_installment)}
+              Selected Ticket: <strong style={{ color: 'var(--cyan-400)' }}>#{String(selectedSlot).padStart(2, '0')}</strong> • Monthly Installment: {formatINR(scheme.monthlyInstallment || scheme.monthly_installment)} (due once all {totalSlots} members join)
             </span>
           </div>
         )}

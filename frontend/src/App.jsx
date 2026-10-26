@@ -199,7 +199,7 @@ export default function App() {
       const res = await api.bookSlot(schemeId, slotNumber, currentUser);
       if (res) {
         setActiveBookingScheme(null);
-        showToast(`Booked Ticket #${slotNumber} in scheme! First installment due in passbook.`, 'success');
+        showToast(res.message || `Booked Ticket #${slotNumber}.`, 'success');
         await loadData(currentUser);
         setActiveSchemeId(schemeId);
         setCurrentView('pools');
