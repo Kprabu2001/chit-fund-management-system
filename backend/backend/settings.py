@@ -1,4 +1,3 @@
-
 """
 Django settings for AuctionTicket Pro backend project.
 """
@@ -55,6 +54,11 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# Render sets this automatically (e.g. kd-chit-api.onrender.com)
+_render_host = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if _render_host and _render_host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_render_host)
+
 
 # ============================================================
 # APPLICATIONS
@@ -92,6 +96,17 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# Serve /static/ (Django admin CSS) on Render. Needs `pip install whitenoise`.
+try:
+    import whitenoise  # noqa: F401
+    MIDDLEWARE.insert(2, "whitenoise.middleware.WhiteNoiseMiddleware")
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+    }
+except ImportError:
+    pass
 
 
 # ============================================================
@@ -156,6 +171,8 @@ DATABASES = {
             "DB_PORT",
             "3306",
         ),
+
+        "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
 
         "OPTIONS": {
             "charset": "utf8mb4",
@@ -228,6 +245,18 @@ X_FRAME_OPTIONS = "DENY"
 
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
+# Render / Vercel terminate HTTPS at a proxy: trust its forwarded-proto header
+# so Django knows the request was secure (needed for secure cookies / redirects).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+# Optional extras, off by default (set in Render env when ready):
+#   SECURE_SSL_REDIRECT=True   SECURE_HSTS_SECONDS=31536000
+SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False").lower() in ("true", "1", "t")
+SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
+
 
 # ============================================================
 # CORS CONFIGURATION
@@ -251,11 +280,16 @@ _raw_cors_origins = os.getenv(
     "",
 )
 
+# Origins must be scheme + host only, with NO trailing slash and no path.
 CORS_ALLOWED_ORIGINS = [
-    origin.strip()
+    origin.strip().rstrip("/")
     for origin in _raw_cors_origins.split(",")
     if origin.strip()
 ]
+
+# Local dev convenience: if nothing is configured, allow the Vite dev server.
+if DEBUG and not CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 # ============================================================
@@ -268,7 +302,7 @@ _raw_csrf_origins = os.getenv(
 )
 
 CSRF_TRUSTED_ORIGINS = [
-    origin.strip()
+    origin.strip().rstrip("/")
     for origin in _raw_csrf_origins.split(",")
     if origin.strip()
 ]
@@ -305,6 +339,7 @@ REST_FRAMEWORK = {
 }
 
 
+
 # ============================================================
 # RAZORPAY CONFIGURATION
 # ============================================================
@@ -328,3 +363,14 @@ RAZORPAY_WEBHOOK_SECRET = os.getenv(
     "",
 )
 
+
+# ============================================================
+# LOGGING (shows up in Render logs)
+# ============================================================
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": os.getenv("LOG_LEVEL", "INFO")},
+}

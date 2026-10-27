@@ -5,6 +5,8 @@ import { chitLabel, formatTicketId, tierLabel } from '../utils/format';
 export default function MyTicketsView({
   tickets = [],
   schemes = [],
+  payouts = [],
+  onOpenProfile,
   currentUser,
   onNavigate,
   onViewPassbook
@@ -73,6 +75,24 @@ export default function MyTicketsView({
                       <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-heading)' }}>
                         Net Prize Payout: {formatINR(netPrizeVal)}
                       </div>
+                      {(() => {
+                        const po = payouts.find(x => x.ticket_id === t.id);
+                        if (!po) return null;
+                        const paid = po.status === 'PAID';
+                        return (
+                          <div className="prize-status" style={{ marginTop: '0.6rem' }}>
+                            <span className={`badge-pill ${paid ? 'paid' : 'due'}`}>{paid ? '✓ PRIZE PAID' : '⏳ PRIZE PENDING'}</span>
+                            {paid && <div className="field-hint">UTR / reference: <strong>{po.utr}</strong>{po.paid_at && <> · {new Date(po.paid_at).toLocaleDateString('en-IN')}</>}</div>}
+                            {!paid && po.details_missing && (
+                              <div className="payout-warning" style={{ marginTop: '0.5rem' }}>
+                                Add your UPI or bank details to receive your prize.{' '}
+                                <button type="button" className="btn btn-sm btn-primary" onClick={onOpenProfile}>Add details</button>
+                              </div>
+                            )}
+                            {!paid && !po.details_missing && <div className="field-hint">Your payout details are saved. The admin will pay you soon.</div>}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
 

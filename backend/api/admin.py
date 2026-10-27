@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (
     UserProfile, ValueTier, AuctionScheme, Ticket,
-    MonthlyPayment, AuctionRound, AuctionBid, AuctionRecord, PaymentLedgerEntry, PhoneOTP
+    MonthlyPayment, AuctionRound, AuctionBid, AuctionRecord, PaymentLedgerEntry, PhoneOTP,
+    PrizePayout, AuctionCorrection, PrizePayoutLedgerEntry
 )
 
 @admin.register(UserProfile)
@@ -57,3 +58,21 @@ class PhoneOTPAdmin(admin.ModelAdmin):
     list_display = ('id', 'phone', 'otp_code', 'attempts', 'is_used', 'expires_at', 'created_at')
     list_filter = ('is_used', 'created_at')
     search_fields = ('phone', 'otp_code')
+
+
+@admin.register(PrizePayout)
+class PrizePayoutAdmin(admin.ModelAdmin):
+    list_display = ('id', 'scheme', 'month_number', 'user', 'amount', 'status', 'utr', 'paid_at')
+    list_filter = ('status', 'scheme')
+    search_fields = ('id', 'user__name', 'utr')
+
+
+@admin.register(AuctionCorrection)
+class AuctionCorrectionAdmin(admin.ModelAdmin):
+    list_display = ('scheme', 'month_number', 'old_winner_name', 'old_discount', 'corrected_by', 'corrected_at')
+
+
+@admin.register(PrizePayoutLedgerEntry)
+class PrizePayoutLedgerEntryAdmin(admin.ModelAdmin):
+    list_display = ('payout', 'entry_type', 'amount', 'method', 'transaction_ref', 'performed_by', 'created_at')
+    list_filter = ('entry_type',)

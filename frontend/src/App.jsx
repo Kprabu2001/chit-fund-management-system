@@ -35,6 +35,8 @@ export default function App() {
   const [schemes, setSchemes] = useState([]);
   const [payments, setPayments] = useState([]);
   const [tickets, setTickets] = useState([]);
+  const [payouts, setPayouts] = useState([]);
+  const [results, setResults] = useState([]);
   const [stats, setStats] = useState(null);
 
   const [activeTier, setActiveTier] = useState('silver');
@@ -81,13 +83,15 @@ export default function App() {
     }
     setCurrentUser(activeUser);
 
-    const [usersRes, tiersRes, schemesRes, ticketsRes, paymentsRes, statsRes] = await Promise.allSettled([
+    const [usersRes, tiersRes, schemesRes, ticketsRes, paymentsRes, statsRes, payoutsRes, resultsRes] = await Promise.allSettled([
       activeUser?.role === 'admin' ? api.getUsers() : Promise.resolve([activeUser]),  // /users/ list is admin-only (403 for members)
       api.getTiers(),
       api.getSchemes(),
       api.getTickets(activeUser?.role === 'admin' ? null : activeUser?.id),
       api.getPayments(activeUser?.role === 'admin' ? {} : { userId: activeUser?.id }),
-      api.getOverviewStats(activeUser?.id)
+      api.getOverviewStats(activeUser?.id),
+      api.getPayouts(),   // admin: all prize payouts; member: only their own
+      api.getAuctionResults()   // monthly auction results for the member's chits
     ]);
     const allUsers = usersRes.status === 'fulfilled' ? usersRes.value : [];
     const loadedTiers = tiersRes.status === 'fulfilled' ? tiersRes.value : [];
@@ -109,6 +113,8 @@ export default function App() {
     setTickets(loadedTickets);
     if (paymentsRes.status === 'fulfilled') setPayments(paymentsRes.value);
     if (statsRes.status === 'fulfilled') setStats(statsRes.value);
+    if (payoutsRes.status === 'fulfilled') setPayouts(payoutsRes.value);
+    if (resultsRes.status === 'fulfilled') setResults(resultsRes.value);
   };
 
   // Members: quietly refresh every 30s so admin reminders show up in the bell
@@ -116,8 +122,14 @@ export default function App() {
     if (!currentUser || currentUser.role === 'admin') return undefined;
     const timer = setInterval(async () => {
       try {
-        const fresh = await api.getPayments({ userId: currentUser.id });
+        const [fresh, freshPayouts, freshResults] = await Promise.all([
+          api.getPayments({ userId: currentUser.id }),
+          api.getPayouts().catch(() => null),
+          api.getAuctionResults().catch(() => null)
+        ]);
         if (Array.isArray(fresh)) setPayments(fresh);
+        if (Array.isArray(freshPayouts)) setPayouts(freshPayouts);
+        if (Array.isArray(freshResults)) setResults(freshResults);
       } catch { /* ignore, next tick retries */ }
     }, 30000);
     return () => clearInterval(timer);
@@ -319,11 +331,16 @@ export default function App() {
           currentView={currentView}
           currentUser={currentUser}
           payments={payments}
+          payouts={payouts}
+          results={results}
           onOpenProfile={() => setShowProfile(true)}
           onNotificationAction={(action) => {
             if (!action) return;
             if (action.kind === 'pay' && action.payment) setActivePayment(action.payment);
             else if (action.kind === 'receipt' && action.payment) setActiveReceipt(action.payment);
+            else if (action.kind === 'profile') setShowProfile(true);
+            else if (action.kind === 'prizes') setCurrentView(currentUser?.role === 'admin' ? 'admin' : 'tickets');
+            else if (action.kind === 'result') setCurrentView(currentUser?.role === 'admin' ? 'admin' : 'ledger');
             else setCurrentView('ledger');
           }}
           isLightTheme={isLightTheme}
@@ -381,6 +398,8 @@ export default function App() {
 
           {currentView === 'tickets' && (
             <MyTicketsView
+              payouts={payouts}
+              onOpenProfile={() => setShowProfile(true)}
               tickets={tickets}
               schemes={schemes}
               currentUser={currentUser}
@@ -398,6 +417,8 @@ export default function App() {
               schemes={schemes}
               users={users}
               tickets={tickets}
+              payouts={payouts}
+              onRefreshData={() => loadData(currentUser)}
               onSelectScheme={(schemeId) => {
                 setActiveSchemeId(schemeId);
                 setCurrentView('pools');
@@ -457,7 +478,10 @@ export default function App() {
         <ProfileModal
           currentUser={currentUser}
           onClose={() => setShowProfile(false)}
-          onSaved={(saved) => setCurrentUser(prev => ({ ...prev, ...saved }))}
+          onSaved={(saved) => {
+            setCurrentUser(prev => ({ ...prev, ...saved }));
+            api.getPayouts().then(setPayouts).catch(() => {});
+          }}
           onShowToast={showToast}
         />
       )}

@@ -121,14 +121,9 @@ export const normalizeScheme = (s) => {
     duration_months: durationMonths,
     totalSlots,
     total_slots: totalSlots,
-    bookedSlots: (() => {
-      const b = Number(s.bookedSlots ?? s.booked_slots ?? 0);
-      return b >= totalSlots ? Math.max(1, totalSlots - 2) : b;
-    })(),
-    booked_slots: (() => {
-      const b = Number(s.booked_slots ?? s.bookedSlots ?? 0);
-      return b >= totalSlots ? Math.max(1, totalSlots - 2) : b;
-    })(),
+    // Real booked count. (It used to be capped at totalSlots-2, which made a full pool show as 18/20.)
+    bookedSlots: Number(s.bookedSlots ?? s.booked_slots ?? 0),
+    booked_slots: Number(s.booked_slots ?? s.bookedSlots ?? 0),
     commissionPercent,
     commission_percent: commissionPercent,
     minBidDiscount,
@@ -673,6 +668,62 @@ export const api = {
       throw new Error(data.error || 'Failed to dispatch alert.');
     }
     return data;
+  },
+
+  // --- 5b. Offline auction: declare winner, prize payouts ---
+  async _post(path, body) {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST', headers: getHeaders(), body: JSON.stringify(body || {}), signal: AbortSignal.timeout(45000)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || 'Request failed.');
+    return data;
+  },
+
+  // dry_run=true validates and returns { summary, warnings } without changing anything.
+  declareWinner({ schemeId, ticketId, discount, dryRun = false }) {
+    return this._post('/auctions/declare-winner/', {
+      scheme_id: schemeId, ticket_id: ticketId, discount_amount: discount, dry_run: dryRun
+    });
+  },
+
+  // Undo the latest winner of a scheme (only while the prize is still Pending).
+  revertWinner(schemeId, reason = '') {
+    return this._post('/auctions/revert-winner/', { scheme_id: schemeId, reason });
+  },
+
+  // Admin: every payout. Member: only their own (status, amount, UTR, details_missing).
+  async getPayouts() {
+    const res = await fetchWithRetry(`${BASE_URL}/auctions/payouts/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error(`Payouts request failed (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  },
+
+  // Admin only: winner's saved UPI / bank details, UPI link, warning and ledger.
+  async getPayoutDetail(payoutId) {
+    const res = await fetch(`${BASE_URL}/auctions/payouts/${encodeURIComponent(payoutId)}/`, {
+      headers: getHeaders(), signal: AbortSignal.timeout(45000)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || 'Could not load payout details.');
+    return data;
+  },
+
+  markPayoutPaid(payoutId, { method, utr, notes = '' }) {
+    return this._post(`/auctions/payouts/${encodeURIComponent(payoutId)}/mark-paid/`, { method, utr, notes });
+  },
+
+  remindPayoutMember(payoutId) {
+    return this._post(`/auctions/payouts/${encodeURIComponent(payoutId)}/remind/`, {});
+  },
+
+  // Public monthly auction results for the caller's chits, with the member's own dividend / new due.
+  async getAuctionResults() {
+    const res = await fetchWithRetry(`${BASE_URL}/auctions/results/`, { headers: getHeaders() });
+    if (!res.ok) throw new Error(`Results request failed (${res.status})`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   },
 
   // --- 6. Overview & Admin Stats ---

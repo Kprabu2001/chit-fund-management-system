@@ -21,7 +21,7 @@ export default function BookingModal({
 
   // If mock data booked slots exceeds existing tickets, fill some arbitrary slots while ensuring open slots exist
   const rawMockCount = Number(scheme.bookedSlots ?? scheme.booked_slots ?? 0);
-  const mockBookedCount = rawMockCount >= totalSlots ? Math.max(1, totalSlots - 2) : rawMockCount;
+  const mockBookedCount = Math.min(rawMockCount, totalSlots);   // a full pool stays full (no fake open slots)
   for (let i = 1; i <= totalSlots && bookedSlotNumbers.length < mockBookedCount; i++) {
     if (!bookedSlotNumbers.includes(i)) {
       bookedSlotNumbers.push(i);

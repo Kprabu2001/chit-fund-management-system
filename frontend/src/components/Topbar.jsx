@@ -7,6 +7,8 @@ export default function Topbar({
   currentView,
   currentUser,
   payments,
+  payouts,
+  results,
   onNotificationAction,
   onOpenProfile,
   isLightTheme,
@@ -41,7 +43,7 @@ export default function Topbar({
       </div>
 
       <div className="topbar-right">
-        <NotificationBell payments={payments} currentUser={currentUser} onAction={onNotificationAction} />
+        <NotificationBell payments={payments} payouts={payouts} results={results} currentUser={currentUser} onAction={onNotificationAction} />
         <ThemeToggle isLight={isLightTheme} onToggle={onToggleTheme} />
         <span className="topbar-divider" />
         <ProfileMenu currentUser={currentUser} onLogout={onLogout} onOpenProfile={onOpenProfile} />

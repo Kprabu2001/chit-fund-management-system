@@ -9,14 +9,14 @@ const loadRead = (user) => {
 
 const ICONS = { danger: '⚠️', warn: '⏰', ok: '✅', info: 'ℹ️' };
 
-export default function NotificationBell({ payments, currentUser, onAction }) {
+export default function NotificationBell({ payments, payouts = [], results = [], currentUser, onAction }) {
   const [open, setOpen] = useState(false);
   const [readIds, setReadIds] = useState(() => loadRead(currentUser));
   const ref = useRef(null);
 
   useEffect(() => { setReadIds(loadRead(currentUser)); }, [currentUser?.id, currentUser?.phone]);
 
-  const items = useMemo(() => buildNotifications(payments, currentUser), [payments, currentUser]);
+  const items = useMemo(() => buildNotifications(payments, currentUser, payouts, results), [payments, payouts, results, currentUser]);
   const unread = items.filter(n => !readIds.has(n.id)).length;
 
   const persist = (set) => {

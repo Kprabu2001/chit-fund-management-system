@@ -148,7 +148,7 @@ class AuctionScheme(models.Model):
 
     def get_eligible_dividend_members_count(self) -> int:
         """Upper-bound (round 1, nobody prized yet) count of members sharing in the dividend pool.
-        Live rounds use the actual number of non-prized tickets (see views.live_auction_view)."""
+        Declare Winner uses the actual number of non-prized tickets."""
         if self.winner_dividend_eligible:
             return self.total_slots
         return max(1, self.total_slots - 1)
@@ -279,6 +279,78 @@ class AuctionRecord(models.Model):
 
     def __str__(self):
         return f"Auction Record {self.scheme.name} Month #{self.month_number} (Winner: {self.winner_user.name})"
+
+
+class PrizePayout(models.Model):
+    """Prize owed to the winner of one auction month. Created as PENDING when the
+    winner is declared and flipped to PAID when the admin records the UTR."""
+    STATUS_CHOICES = [('PENDING', 'Pending'), ('PAID', 'Paid')]
+
+    id = models.CharField(max_length=80, primary_key=True)  # PAYOUT-<scheme>-M<month>
+    auction_record = models.OneToOneField(AuctionRecord, on_delete=models.CASCADE, related_name='payout')
+    scheme = models.ForeignKey(AuctionScheme, on_delete=models.CASCADE, related_name='prize_payouts')
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='prize_payouts')
+    user = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='prize_payouts')
+    month_number = models.IntegerField()
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=10, default='PENDING', choices=STATUS_CHOICES)
+    utr = models.CharField(max_length=100, blank=True, default='')
+    paid_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='paid_out_prizes')
+    paid_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # How it was paid (masked destination only; full details are never copied off the profile)
+    method = models.CharField(max_length=10, blank=True, default='', choices=[('', 'Not set'), ('UPI', 'UPI'), ('BANK', 'Bank transfer')])
+    destination = models.CharField(max_length=200, blank=True, default='')
+    notes = models.CharField(max_length=300, blank=True, default='')
+    # Admin "Remind member" nudges when the winner has no payout details saved
+    details_reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    details_reminder_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Payout {self.id}: ₹{self.amount} ({self.status})"
+
+
+class PrizePayoutLedgerEntry(models.Model):
+    """Append-only audit log of prize payout events (payment recorded, member reminded)."""
+    id = models.BigAutoField(primary_key=True)
+    payout = models.ForeignKey(PrizePayout, on_delete=models.CASCADE, related_name='ledger_entries')
+    entry_type = models.CharField(max_length=20, choices=[('PAID', 'Prize paid'), ('REMINDER', 'Details reminder sent')])
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    method = models.CharField(max_length=10, blank=True, default='')
+    destination = models.CharField(max_length=200, blank=True, default='')
+    transaction_ref = models.CharField(max_length=100, blank=True, default='')
+    performed_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='prize_ledger_entries')
+    notes = models.CharField(max_length=300, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+
+    def __str__(self):
+        return f"{self.entry_type} {self.payout_id} ₹{self.amount}"
+
+
+class AuctionCorrection(models.Model):
+    """Append-only audit trail: a declared winner that was reverted while the payout was still pending."""
+    id = models.BigAutoField(primary_key=True)
+    scheme = models.ForeignKey(AuctionScheme, on_delete=models.CASCADE, related_name='auction_corrections')
+    month_number = models.IntegerField()
+    old_winner_ticket_id = models.CharField(max_length=50)
+    old_winner_name = models.CharField(max_length=150)
+    old_discount = models.DecimalField(max_digits=12, decimal_places=2)
+    old_net_prize = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.TextField(blank=True, default='')
+    corrected_by = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='auction_corrections')
+    corrected_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-corrected_at']
+
+    def __str__(self):
+        return f"Correction {self.scheme_id} M{self.month_number}: {self.old_winner_name}"
 
 
 class PaymentLedgerEntry(models.Model):

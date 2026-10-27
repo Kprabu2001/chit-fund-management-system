@@ -2,10 +2,12 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     UserProfileViewSet, ValueTierViewSet, AuctionSchemeViewSet,
-    TicketViewSet, MonthlyPaymentViewSet, overview_stats, live_auction_view,
+    TicketViewSet, MonthlyPaymentViewSet, overview_stats,
     login_view, me_view, profile_view, logout_view, send_otp_view, verify_otp_view,
     razorpay_webhook_view
 )
+from .winner_views import declare_winner_view, revert_winner_view
+from .payout_views import payout_list_view, payout_detail_view, payout_mark_paid_view, payout_remind_view, auction_results_view
 
 router = DefaultRouter()
 router.register(r'users', UserProfileViewSet, basename='user')
@@ -29,8 +31,13 @@ urlpatterns = [
 
     # Financial & auction endpoints
     path('overview-stats/', overview_stats, name='overview-stats'),
-    path('auctions/live/', live_auction_view, name='live-auction'),
-    path('auction/live/', live_auction_view, name='live-auction-singular'),
+    path('auctions/declare-winner/', declare_winner_view, name='declare-winner'),
+    path('auctions/revert-winner/', revert_winner_view, name='revert-winner'),
+    path('auctions/results/', auction_results_view, name='auction-results'),
+    path('auctions/payouts/', payout_list_view, name='payout-list'),
+    path('auctions/payouts/<str:payout_id>/', payout_detail_view, name='payout-detail'),
+    path('auctions/payouts/<str:payout_id>/mark-paid/', payout_mark_paid_view, name='payout-mark-paid'),
+    path('auctions/payouts/<str:payout_id>/remind/', payout_remind_view, name='payout-remind'),
 
     # Router endpoints
     path('', include(router.urls)),

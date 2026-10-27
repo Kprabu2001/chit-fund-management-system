@@ -26,7 +26,7 @@ const today = () => {
  * Each item: { id, type: 'danger'|'warn'|'ok'|'info', title, body, time, action }
  * action: { kind: 'pay'|'receipt'|'ledger', payment? }
  */
-export function buildNotifications(payments = [], currentUser) {
+export function buildNotifications(payments = [], currentUser, payouts = [], results = []) {
   const now = today();
   const isAdmin = currentUser?.role === 'admin';
   const mine = isAdmin ? payments : payments.filter(p => !currentUser?.id || (p.userId || p.user_id) === currentUser.id);
@@ -76,6 +76,18 @@ export function buildNotifications(payments = [], currentUser) {
         action: { kind: 'ledger' }
       });
     }
+    const pendingPrizes = payouts.filter(x => x.status === 'PENDING');
+    if (pendingPrizes.length) {
+      const noDetails = pendingPrizes.filter(x => x.details_missing).length;
+      items.push({
+        id: `admin-prizes-${pendingPrizes.map(x => x.id).join(',')}-${noDetails}`,
+        type: 'warn',
+        title: `${pendingPrizes.length} prize payout${pendingPrizes.length > 1 ? 's' : ''} pending`,
+        body: `${formatINR(pendingPrizes.reduce((sum, x) => sum + Number(x.amount), 0))} to pay${noDetails ? `; ${noDetails} winner${noDetails > 1 ? 's have' : ' has'} not added UPI / bank details` : ''}.`,
+        sort: 1,
+        action: { kind: 'prizes' }
+      });
+    }
     if (recentlyPaid.length) {
       items.push({
         id: `admin-paid-${recentlyPaid.length}-${recentlyPaid.reduce((s, x) => s + amountOf(x.p), 0)}`,
@@ -88,6 +100,67 @@ export function buildNotifications(payments = [], currentUser) {
     }
     return items;
   }
+
+  // Monthly auction result for each of the member's chits (server limits this to the last 30 days
+  // and adds the member's own dividend and new due). Showing the result to everyone is normal chit practice.
+  results.forEach(r => {
+    if (r.my_dividend === undefined) return;   // admin rows carry no personal figures
+    const head = `${r.scheme_name} · Month #${r.month_number} auction: Ticket #${r.winner_ticket_number} (${r.winner_name}) won with a ${formatINR(r.winning_discount)} discount.`;
+    let tail;
+    if (r.i_won) tail = ' You won this month! See your ticket for the prize status.';
+    else if (r.my_next_due != null) {
+      tail = r.my_dividend > 0
+        ? ` Your dividend is ${formatINR(r.my_dividend)}, so your next due is ${formatINR(r.my_next_due)}.`
+        : ` Your next due is ${formatINR(r.my_next_due)}.`;
+    } else tail = '';
+    items.push({
+      id: `result-${r.id}`,
+      type: r.i_won ? 'ok' : 'info',
+      title: r.i_won ? `🏆 You won Month #${r.month_number}!` : `Auction result · Month #${r.month_number}`,
+      body: head + tail,
+      sort: 1,
+      action: { kind: 'result' }
+    });
+  });
+
+  // Prize payouts (winner only; the list is already limited to this member's own prizes).
+  // 'details_missing' is computed by the server from the live profile, so this item
+  // disappears as soon as a UPI ID or a complete bank account is saved.
+  payouts.forEach(x => {
+    if (x.status === 'PENDING' && x.details_missing) {
+      const reminded = x.details_reminder_sent_at;
+      items.push({
+        id: `prize-details-${x.id}-${reminded || 'new'}`,
+        type: 'danger',
+        title: reminded ? 'Reminder: add your payout details' : '🏆 You won! Add your payout details',
+        body: `Add your UPI or bank details to receive your prize of ${formatINR(x.amount)} (${x.scheme_name}, month #${x.month_number}).`,
+        sort: -2,
+        action: { kind: 'profile' }
+      });
+    } else if (x.status === 'PENDING') {
+      items.push({
+        id: `prize-pending-${x.id}`,
+        type: 'info',
+        title: 'Prize on its way',
+        body: `Your prize of ${formatINR(x.amount)} (${x.scheme_name}, month #${x.month_number}) will be paid by the admin.`,
+        sort: 1,
+        action: { kind: 'prizes' }
+      });
+    } else if (x.status === 'PAID') {
+      const paid = toDay(x.paid_at);
+      const ago = paid ? Math.round((now - paid) / DAY) : null;
+      if (ago !== null && ago >= 0 && ago <= RECENT_DAYS) {
+        items.push({
+          id: `prize-paid-${x.id}`,
+          type: 'ok',
+          title: 'Prize paid',
+          body: `${formatINR(x.amount)} for ${x.scheme_name}, month #${x.month_number} was paid. UTR ${x.utr}.`,
+          sort: 2,
+          action: { kind: 'prizes' }
+        });
+      }
+    }
+  });
 
   // Reminder sent by the admin (stored on the payment, so it survives refresh)
   const reminded = mine.filter(p => statusOf(p) !== 'PAID' && (p.reminderSentAt || p.reminder_sent_at));

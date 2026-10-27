@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { formatINR } from '../data/initialData';
 import { formatTicketId, buildChitList, formatChitName } from '../utils/format';
+import PrizePayoutsPanel from './PrizePayoutsPanel';
 
 const ADM_ICON_PATHS = {
   wallet: <><path d="M3 7a2 2 0 0 1 2-2h12v4" /><path d="M3 7v10a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2" /><circle cx="16.5" cy="13.5" r="1" /></>,
@@ -24,13 +25,15 @@ export default function AdminConsoleView({
   schemes = [],
   users = [],
   tickets = [],
+  payouts = [],
+  onRefreshData,
   onSelectScheme,
   onReconcilePayment,
   onSendReminder,
   onOpenCreateSchemeModal,
   onShowToast
 }) {
-  const [viewMode, setViewMode] = useState('payments'); // 'payments' | 'tickets' | 'users'
+  const [viewMode, setViewMode] = useState('payments'); // 'payments' | 'tickets' | 'users' | 'prizes'
   const tableRef = useRef(null);
   const remindedAgo = (iso) => {
     if (!iso) return '';
@@ -402,6 +405,13 @@ export default function AdminConsoleView({
             >
               👥 Manage Users ({filteredUsers.length})
             </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${viewMode === 'prizes' ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => setViewMode('prizes')}
+            >
+              🏆 Winners & Payouts ({payouts.filter(x => x.status === 'PENDING').length} pending)
+            </button>
           </div>
 
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
@@ -409,12 +419,14 @@ export default function AdminConsoleView({
               ? `Showing ${filteredPayments.length} collection records`
               : viewMode === 'tickets'
               ? `Showing ${filteredTickets.length} user tickets`
+              : viewMode === 'prizes'
+              ? `${payouts.length} declared winner${payouts.length === 1 ? '' : 's'}`
               : `Managing ${filteredUsers.length} subscribers`}
           </div>
         </div>
 
         {/* Search & Filter Toolbar */}
-        <div className="ledger-toolbar" style={{ marginBottom: '1.25rem' }}>
+        {viewMode !== 'prizes' && <div className="ledger-toolbar" style={{ marginBottom: '1.25rem' }}>
           <div className="search-field-box" style={{ flex: '1 1 260px' }}>
             <span className="search-field-icon">🔍</span>
             <input
@@ -461,7 +473,11 @@ export default function AdminConsoleView({
               </select>
             )}
           </div>
-        </div>
+        </div>}
+
+        {viewMode === 'prizes' && (
+          <PrizePayoutsPanel schemes={chitList} tickets={tickets} payouts={payouts} onRefresh={onRefreshData} onShowToast={onShowToast} />
+        )}
 
         {/* View Mode 1: Monthly Paid Collections & Reconcile */}
         {viewMode === 'payments' && (
