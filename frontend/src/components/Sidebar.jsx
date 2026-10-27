@@ -1,5 +1,6 @@
 import React from 'react';
 import { buildChitList, formatChitName } from '../utils/format';
+import Skeleton from './Skeleton';
 
 export default function Sidebar({
   currentView,
@@ -14,6 +15,7 @@ export default function Sidebar({
   overdueAmount = 0,
   upcomingAmount = 0,
   totalPaymentsCount = 0,
+  loading = false,
   isMobileOpen
 }) {
   // Chit schemes list: prioritize dynamic schemes or fallback to default chits
@@ -26,7 +28,8 @@ export default function Sidebar({
   ];
 
   // Deduplicate chit schemes list so there is never duplicate 1 Lakh, 10 Lakh, etc.
-  const rawChits = (schemes && schemes.length > 0) ? schemes : defaultChits;
+  // while loading, don't flash the hardcoded placeholder chits
+  const rawChits = (schemes && schemes.length > 0) ? schemes : (loading ? [] : defaultChits);
   const ticketSchemeIds = new Set((tickets || []).map(t => t.schemeId || t.scheme_id));
   const rank = (x) => (ticketSchemeIds.has(x.id || x._id) ? 0 : 1) * 2 + (String(x.status || '').toLowerCase() === 'active' ? 0 : 1);
   const chitList = buildChitList(rawChits, rank);
@@ -85,7 +88,9 @@ export default function Sidebar({
                 <span>💳</span>
                 <span>Monthly Paid Ledger</span>
               </span>
-              {overdueAmount > 0 ? (
+              {loading ? (
+                <Skeleton w="5.5rem" h="0.7rem" style={{ marginTop: '0.3rem' }} />
+              ) : overdueAmount > 0 ? (
                 <span className="nav-subline subline-overdue">
                   ₹{overdueAmount.toLocaleString('en-IN')} overdue
                 </span>
@@ -113,6 +118,7 @@ export default function Sidebar({
               </span>
               {(() => {
                 const count = (tickets || []).filter(t => !currentUser?.id || t.userId === currentUser.id || t.user_id === currentUser.id).length;
+                if (loading) return <Skeleton w="4rem" h="0.7rem" style={{ marginTop: '0.3rem' }} />;
                 return count > 0 ? (
                   <span className="nav-subline subline-tickets">
                     {count} {count === 1 ? 'Ticket' : 'Tickets'}
@@ -127,6 +133,13 @@ export default function Sidebar({
         <div className="nav-section-label" style={{ marginTop: '1rem' }}>
           <span>Chit Schemes</span>
         </div>
+
+        {loading && [0, 1, 2, 3].map(i => (
+          <div key={i} style={{ padding: '0.65rem 0.9rem' }} aria-hidden="true">
+            <Skeleton w="70%" h="0.9rem" style={{ marginBottom: '0.45rem' }} />
+            <Skeleton w="45%" h="0.65rem" />
+          </div>
+        ))}
 
         {(() => {
           // One sidebar entry per chit amount; chits of the same amount are shown inside it.

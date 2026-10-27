@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { formatINR } from '../data/initialData';
 import { formatTicketId } from '../utils/format';
+import Skeleton, { SkeletonRows } from '../components/Skeleton';
 
 export default function MonthlyPaidLedgerView({
+  loading = false,
   payments,
   currentUser,
   onOpenPaymentModal,
@@ -83,19 +85,19 @@ export default function MonthlyPaidLedgerView({
         <div style={{ background: 'var(--bg-card)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Total Paid in Filter</div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--emerald-400)', fontFamily: 'var(--font-heading)' }}>
-            {formatINR(totalPaidInView)}
+            {loading ? <Skeleton w="7rem" h="1.35rem" /> : formatINR(totalPaidInView)}
           </div>
         </div>
         <div style={{ background: 'var(--bg-card)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Current & Overdue Dues</div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--amber-400)', fontFamily: 'var(--font-heading)' }}>
-            {formatINR(totalDueInView)}
+            {loading ? <Skeleton w="7rem" h="1.35rem" /> : formatINR(totalDueInView)}
           </div>
         </div>
         <div style={{ background: 'var(--bg-card)', padding: '1rem 1.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Upcoming Dues in Filter</div>
           <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--cyan-400)', fontFamily: 'var(--font-heading)' }}>
-            {formatINR(totalUpcomingInView)}
+            {loading ? <Skeleton w="7rem" h="1.35rem" /> : formatINR(totalUpcomingInView)}
           </div>
         </div>
       </div>
@@ -130,7 +132,7 @@ export default function MonthlyPaidLedgerView({
             </select>
 
             <span className="badge-pill paid">
-              {filtered.length} Records
+              {loading ? 'Loading…' : `${filtered.length} Records`}
             </span>
           </div>
         </div>
@@ -150,7 +152,9 @@ export default function MonthlyPaidLedgerView({
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                <SkeletonRows rows={6} cols={8} />
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan="8" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                     No payment records match your search or filter.

@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { formatINR } from '../data/initialData';
 import { formatTicketId, buildChitList, formatChitName } from '../utils/format';
 import PrizePayoutsPanel from './PrizePayoutsPanel';
+import Skeleton, { SkeletonRows } from '../components/Skeleton';
 
 const ADM_ICON_PATHS = {
   wallet: <><path d="M3 7a2 2 0 0 1 2-2h12v4" /><path d="M3 7v10a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2" /><circle cx="16.5" cy="13.5" r="1" /></>,
@@ -20,6 +21,7 @@ function AdmIcon({ name }) {
 }
 
 export default function AdminConsoleView({
+  loading = false,
   stats,
   payments = [],
   schemes = [],
@@ -228,7 +230,7 @@ export default function AdminConsoleView({
             <span className="adm-kpi-label">Total collected</span>
             <span className="adm-kpi-icon ok"><AdmIcon name="wallet" /></span>
           </div>
-          <div className="adm-kpi-value">{formatINR(totalCollected)}</div>
+          <div className="adm-kpi-value">{loading ? <Skeleton w="8rem" h="1.8rem" /> : formatINR(totalCollected)}</div>
           <div className="adm-kpi-foot ok"><span className="adm-dot"></span>Collected &amp; reconciled</div>
         </div>
 
@@ -242,10 +244,10 @@ export default function AdminConsoleView({
             <span className="adm-kpi-label">Overdue</span>
             <span className="adm-kpi-icon danger"><AdmIcon name="alert" /></span>
           </div>
-          <div className={`adm-kpi-value ${overdueAmount > 0 ? 'danger' : ''}`}>{formatINR(overdueAmount)}</div>
+          <div className={`adm-kpi-value ${!loading && overdueAmount > 0 ? 'danger' : ''}`}>{loading ? <Skeleton w="8rem" h="1.8rem" /> : formatINR(overdueAmount)}</div>
           <div className={`adm-kpi-foot ${overdueAmount > 0 ? 'danger' : 'ok'}`}>
             <span className="adm-dot"></span>
-            {overduePayments.length > 0
+            {loading ? <Skeleton w="8rem" h="0.75rem" /> : overduePayments.length > 0
               ? `${overduePayments.length} payment${overduePayments.length > 1 ? 's' : ''} from ${overdueMembers} member${overdueMembers > 1 ? 's' : ''}`
               : 'Nothing overdue'}
             {overduePayments.length > 0 && <span className="adm-kpi-cta">{viewMode === 'payments' && filterStatus === 'OVERDUE' ? 'Showing' : 'View'}</span>}
@@ -262,10 +264,10 @@ export default function AdminConsoleView({
             <span className="adm-kpi-label">Due this month</span>
             <span className="adm-kpi-icon warn"><AdmIcon name="clock" /></span>
           </div>
-          <div className="adm-kpi-value">{formatINR(dueThisMonthAmount)}</div>
+          <div className="adm-kpi-value">{loading ? <Skeleton w="8rem" h="1.8rem" /> : formatINR(dueThisMonthAmount)}</div>
           <div className="adm-kpi-foot warn">
             <span className="adm-dot"></span>
-            {duePayments.length} payment{duePayments.length !== 1 ? 's' : ''} awaiting
+            {loading ? <Skeleton w="7rem" h="0.75rem" /> : `${duePayments.length} payment${duePayments.length !== 1 ? 's' : ''} awaiting`}
             {duePayments.length > 0 && <span className="adm-kpi-cta">{viewMode === 'payments' && filterStatus === 'CURRENT_DUE' ? 'Showing' : 'View'}</span>}
           </div>
         </button>
@@ -289,7 +291,13 @@ export default function AdminConsoleView({
               <button type="button" className={selectedMonth === lastMonthKey ? 'active' : ''} onClick={() => setSelectedMonth(lastMonthKey)}>Last month</button>
             </div>
           </div>
-          {monthPayments.length === 0 ? (
+          {loading ? (
+            <div style={{ display: 'grid', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <Skeleton w="5rem" h="2rem" />
+              <Skeleton w="100%" h="0.6rem" />
+              <Skeleton w="60%" h="0.9rem" />
+            </div>
+          ) : monthPayments.length === 0 ? (
             <div className="adm-empty">No installments fall due in {monthLabel(selectedMonth)}.</div>
           ) : (
             <div className="adm-month-body">
@@ -321,7 +329,7 @@ export default function AdminConsoleView({
             <span className="adm-kpi-label">Active user tickets</span>
             <span className="adm-kpi-icon purple"><AdmIcon name="ticket" /></span>
           </div>
-          <div className="adm-kpi-value">{tickets.length || adminStats.active_tickets_total}</div>
+          <div className="adm-kpi-value">{loading ? <Skeleton w="3.5rem" h="1.8rem" /> : (tickets.length || adminStats.active_tickets_total)}</div>
           <div className="adm-kpi-sub">Enrolled across all chit schemes</div>
         </div>
 
@@ -330,7 +338,7 @@ export default function AdminConsoleView({
             <span className="adm-kpi-label">Managed members</span>
             <span className="adm-kpi-icon purple"><AdmIcon name="users" /></span>
           </div>
-          <div className="adm-kpi-value">{regularUsers.length || adminStats.active_subscribers}</div>
+          <div className="adm-kpi-value">{loading ? <Skeleton w="3.5rem" h="1.8rem" /> : (regularUsers.length || adminStats.active_subscribers)}</div>
           <div className="adm-kpi-sub">Registered subscribers</div>
         </div>
       </div>
@@ -494,7 +502,9 @@ export default function AdminConsoleView({
                 </tr>
               </thead>
               <tbody>
-                {filteredPayments.length === 0 ? (
+                {loading ? (
+                  <SkeletonRows rows={6} cols={6} />
+                ) : filteredPayments.length === 0 ? (
                   <tr>
                     <td colSpan="6" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                       No collection records found matching filter.
@@ -621,7 +631,9 @@ export default function AdminConsoleView({
                 </tr>
               </thead>
               <tbody>
-                {filteredTickets.length === 0 ? (
+                {loading ? (
+                  <SkeletonRows rows={6} cols={7} />
+                ) : filteredTickets.length === 0 ? (
                   <tr>
                     <td colSpan="7" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                       No user tickets found matching filter.
@@ -741,7 +753,9 @@ export default function AdminConsoleView({
                 </tr>
               </thead>
               <tbody>
-                {filteredUsers.length === 0 ? (
+                {loading ? (
+                  <SkeletonRows rows={6} cols={8} />
+                ) : filteredUsers.length === 0 ? (
                   <tr>
                     <td colSpan="8" style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--text-muted)' }}>
                       No registered members found matching search.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from './services/api';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
@@ -38,6 +38,9 @@ export default function App() {
   const [payouts, setPayouts] = useState([]);
   const [results, setResults] = useState([]);
   const [stats, setStats] = useState(null);
+  // true only for the first load per user (background refreshes stay silent)
+  const [loading, setLoading] = useState(() => !!api.getCurrentUser());
+  const loadedFor = useRef(null);
 
   const [activeTier, setActiveTier] = useState('silver');
   const [activeSchemeId, setActiveSchemeId] = useState('SCH-BRZ-1L');
@@ -82,7 +85,9 @@ export default function App() {
       return;
     }
     setCurrentUser(activeUser);
+    if (loadedFor.current !== activeUser.id) setLoading(true);
 
+    try {
     const [usersRes, tiersRes, schemesRes, ticketsRes, paymentsRes, statsRes, payoutsRes, resultsRes] = await Promise.allSettled([
       activeUser?.role === 'admin' ? api.getUsers() : Promise.resolve([activeUser]),  // /users/ list is admin-only (403 for members)
       api.getTiers(),
@@ -115,6 +120,10 @@ export default function App() {
     if (statsRes.status === 'fulfilled') setStats(statsRes.value);
     if (payoutsRes.status === 'fulfilled') setPayouts(payoutsRes.value);
     if (resultsRes.status === 'fulfilled') setResults(resultsRes.value);
+    } finally {
+      loadedFor.current = activeUser.id;
+      setLoading(false);
+    }
   };
 
   // Members: quietly refresh every 30s so admin reminders show up in the bell
@@ -164,6 +173,7 @@ export default function App() {
   // Logout / Sign Out Action
   const handleLogout = async () => {
     await api.logout();
+    loadedFor.current = null;
     setCurrentUser(null);
     setTickets([]);
     setPayments([]);
@@ -320,6 +330,7 @@ export default function App() {
         overdueAmount={overdueAmount}
         upcomingAmount={upcomingAmount}
         totalPaymentsCount={payments.length}
+        loading={loading}
         isMobileOpen={isMobileOpen}
         onOpenAuthModal={() => setShowAuthModal(true)}
         onLogout={handleLogout}
@@ -353,6 +364,7 @@ export default function App() {
         <main className="content-area">
           {currentView === 'overview' && (
             <OverviewView
+              loading={loading}
               stats={stats}
               payments={payments}
               tickets={tickets}
@@ -388,6 +400,7 @@ export default function App() {
 
           {currentView === 'ledger' && (
             <MonthlyPaidLedgerView
+              loading={loading}
               payments={payments}
               currentUser={currentUser}
               onOpenPaymentModal={(p) => setActivePayment(p)}
@@ -398,6 +411,7 @@ export default function App() {
 
           {currentView === 'tickets' && (
             <MyTicketsView
+              loading={loading}
               payouts={payouts}
               onOpenProfile={() => setShowProfile(true)}
               tickets={tickets}
@@ -412,6 +426,7 @@ export default function App() {
 
           {currentView === 'admin' && currentUser?.role === 'admin' && (
             <AdminConsoleView
+              loading={loading}
               stats={stats}
               payments={payments}
               schemes={schemes}

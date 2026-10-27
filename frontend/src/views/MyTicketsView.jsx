@@ -1,8 +1,10 @@
 import React from 'react';
 import { formatINR } from '../data/initialData';
 import { chitLabel, formatTicketId, tierLabel } from '../utils/format';
+import Skeleton, { SkeletonRows } from '../components/Skeleton';
 
 export default function MyTicketsView({
+  loading = false,
   tickets = [],
   schemes = [],
   payouts = [],
@@ -18,7 +20,7 @@ export default function MyTicketsView({
       <div style={{ marginBottom: '1.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)' }}>
-            My Active Ticket Portfolio ({userTickets.length})
+            My Active Ticket Portfolio{loading ? '' : ` (${userTickets.length})`}
           </h2>
           <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)' }}>
             Passbook records, installment progress, and prize release tracking across all your chit schemes.
@@ -27,7 +29,16 @@ export default function MyTicketsView({
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '1.5rem' }}>
-        {userTickets.length === 0 ? (
+        {loading ? (
+          [0, 1, 2].map(i => (
+            <div key={i} className="scheme-card" aria-hidden="true">
+              <Skeleton w="40%" h="1.2rem" style={{ marginBottom: '1rem' }} />
+              <Skeleton w="75%" h="1.4rem" style={{ marginBottom: '0.75rem' }} />
+              <Skeleton w="100%" h="0.6rem" style={{ marginBottom: '1.25rem' }} />
+              <Skeleton w="55%" h="0.9rem" />
+            </div>
+          ))
+        ) : userTickets.length === 0 ? (
           <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '3rem', background: 'var(--bg-card)', borderRadius: 'var(--radius-md)' }}>
             <p style={{ color: 'var(--text-muted)' }}>You do not have any enrolled tickets yet.</p>
           </div>

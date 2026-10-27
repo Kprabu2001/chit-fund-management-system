@@ -1,8 +1,10 @@
 import React from 'react';
 import { formatINR } from '../data/initialData';
 import { formatTicketId } from '../utils/format';
+import Skeleton, { SkeletonRows } from '../components/Skeleton';
 
 export default function OverviewView({
+  loading = false,
   stats,
   payments = [],
   tickets = [],
@@ -69,9 +71,9 @@ export default function OverviewView({
             <span className="kpi-label">Total Paid</span>
             <span className="kpi-icon-pill emerald">✓</span>
           </div>
-          <div className="kpi-amount">{formatINR(dynamicTotalPaid)}</div>
+          <div className="kpi-amount">{loading ? <Skeleton w="8rem" h="1.65rem" /> : formatINR(dynamicTotalPaid)}</div>
           <div className="kpi-footer-note" style={{ color: 'var(--emerald-500)' }}>
-            <span>{hasPayments ? `This month: ${formatINR(paidThisMonth)}` : '✓ Verified Settled Collections'}</span>
+            {loading ? <Skeleton w="7rem" h="0.75rem" /> : <span>{hasPayments ? `This month: ${formatINR(paidThisMonth)}` : '✓ Verified Settled Collections'}</span>}
           </div>
         </div>
 
@@ -81,14 +83,14 @@ export default function OverviewView({
             <span className="kpi-icon-pill amber">📅</span>
           </div>
           <div className="kpi-amount" style={{ color: overdueList.length ? 'var(--danger-text)' : 'var(--warn-text)' }}>
-            {formatINR(dynamicPayableNow)}
+            {loading ? <Skeleton w="8rem" h="1.65rem" /> : formatINR(dynamicPayableNow)}
           </div>
           <div className="kpi-footer-note" style={{ color: overdueList.length ? 'var(--danger-text)' : 'var(--warn-text)' }}>
-            <span>
+            {loading ? <Skeleton w="9rem" h="0.75rem" /> : <span>
               {nextDue
                 ? `${overdueList.length ? 'Overdue since' : '⚠️ Next due'} ${dueOf(nextDue)}`
                 : upcomingAmount > 0 ? `✓ All clear · ${formatINR(upcomingAmount)} upcoming` : '✓ No dues right now'}
-            </span>
+            </span>}
           </div>
         </div>
 
@@ -98,7 +100,7 @@ export default function OverviewView({
             <span className="kpi-icon-pill cyan">⚡</span>
           </div>
           <div className="kpi-amount" style={{ color: 'var(--cyan-400)' }}>
-            {formatINR(dynamicDividendSavings)}
+            {loading ? <Skeleton w="6rem" h="1.65rem" /> : formatINR(dynamicDividendSavings)}
           </div>
           <div className="kpi-footer-note" style={{ color: 'var(--cyan-400)' }}>
             <span>Reduces upcoming payments</span>
@@ -110,7 +112,7 @@ export default function OverviewView({
             <span className="kpi-label">Active Ticket Holdings</span>
             <span className="kpi-icon-pill purple">🎫</span>
           </div>
-          <div className="kpi-amount">{activeTicketsCount} Ticket{activeTicketsCount !== 1 ? 's' : ''}</div>
+          <div className="kpi-amount">{loading ? <Skeleton w="6rem" h="1.65rem" /> : `${activeTicketsCount} Ticket${activeTicketsCount !== 1 ? 's' : ''}`}</div>
           <div className="kpi-footer-note" style={{ color: 'var(--purple-400)' }}>
             <span>Across your chit schemes</span>
           </div>
@@ -143,7 +145,9 @@ export default function OverviewView({
               </tr>
             </thead>
             <tbody>
-              {recentPayments.length === 0 ? (
+              {loading ? (
+                <SkeletonRows rows={5} cols={7} />
+              ) : recentPayments.length === 0 ? (
                 <tr>
                   <td colSpan="7" style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-muted)' }}>
                     No payment records found.

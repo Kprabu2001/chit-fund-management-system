@@ -1616,3 +1616,18 @@ button.adm-kpi-link.is-active .adm-kpi-cta { color: var(--cyan-500); }
 .payout-chip { display: inline-block; margin-top: 0.3rem; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 999px; }
 .payout-chip.warn { background: var(--warn-tint, rgba(245, 158, 11, 0.15)); color: var(--text-main); }
 @media (max-width: 560px) { .payout-detail-row { grid-template-columns: 1fr auto; } .payout-detail-row span { grid-column: 1 / -1; } }
+/* ---------- Skeleton loading ---------- */
+.skeleton {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--border-subtle) 25%, var(--border-light) 50%, var(--border-subtle) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
