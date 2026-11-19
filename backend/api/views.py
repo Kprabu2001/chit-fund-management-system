@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status, permissions
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
@@ -18,7 +19,7 @@ import logging
 
 from .models import (
     UserProfile, ValueTier, AuctionScheme, Ticket,
-    MonthlyPayment, AuctionRound, AuctionBid, AuctionRecord, PaymentLedgerEntry, PhoneOTP,
+    MonthlyPayment, AuctionRound, AuctionBid, AuctionRecord, PaymentLedgerEntry,
     RazorpayQRCode, RazorpayWebhookEvent
 )
 from .serializers import (
@@ -76,7 +77,7 @@ def _is_admin(request):
 from .auction_service import calculate_auction_distribution, finalize_auction  # noqa: E402,F401
 
 
-# --- Phone SMS OTP Authentication Helpers & Endpoints ---
+# --- Phone number helpers ---
 def normalize_phone_number(raw_phone):
     """
     Normalizes a phone string into standard 10-digit format for India.
@@ -95,257 +96,101 @@ def normalize_phone_number(raw_phone):
     return None
 
 
-# In-memory backup store for OTP verification
-IN_MEMORY_OTP_STORE = {}
+# --- Authentication & Identity Endpoints ---
+PHONE_ERROR_REQUIRED = 'Phone number is required.'
+PHONE_ERROR_INVALID = 'Enter a valid 10-digit mobile number starting with 6, 7, 8 or 9.'
+PASSWORD_ERROR_REQUIRED = 'Password is required.'
+PASSWORD_MIN_LENGTH = 5
+PASSWORD_MAX_LENGTH = 128
+INVALID_CREDENTIALS = 'Invalid phone number or password.'
 
-# Demo phone whitelist — only active in DEBUG mode
-_DEBUG_DEMO_PHONES = ['9876543210', '9999988888', '9822011223', '9911233445']
-_DEBUG_DEMO_OTP = '123456'
 
-
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def send_otp_view(request):
+def validate_login_input(raw_phone, password):
     """
-    Generates and dispatches a 6-digit OTP via SMS to the provided phone number.
-    Rate-limited to prevent SMS flooding (30 second cooldown).
-    demo_otp is only included in the response when DEBUG=True.
+    Validates the phone number and password shape.
+    Returns (normalized_phone, errors) where errors is a {field: message} dict.
     """
-    raw_phone = request.data.get('phone', '')
-    phone = normalize_phone_number(raw_phone)
-    if not phone:
-        return Response(
-            {'error': 'Please enter a valid 10-digit mobile phone number.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    errors = {}
+    phone = None
 
-    # Rate limiting: 30-second cooldown
-    cooldown_threshold = timezone.now() - datetime.timedelta(seconds=30)
-    try:
-        recent_otp = PhoneOTP.objects.filter(phone=phone, created_at__gte=cooldown_threshold).first()
-        if recent_otp:
-            return Response(
-                {'error': 'Please wait 30 seconds before requesting another SMS OTP.'},
-                status=status.HTTP_429_TOO_MANY_REQUESTS
-            )
-        # Invalidate previous unused OTPs for this phone
-        PhoneOTP.objects.filter(phone=phone, is_used=False).update(is_used=True)
-    except Exception:
-        # Check in-memory rate limiting
-        recent_mem = IN_MEMORY_OTP_STORE.get(phone)
-        if recent_mem and recent_mem.get('created_at', timezone.now()) >= cooldown_threshold:
-            return Response(
-                {'error': 'Please wait 30 seconds before requesting another SMS OTP.'},
-                status=status.HTTP_429_TOO_MANY_REQUESTS
-            )
-
-    # Generate cryptographically secure 6-digit OTP
-    otp_code = f"{secrets.randbelow(900000) + 100000}"
-    expires_at = timezone.now() + datetime.timedelta(minutes=5)
-
-    try:
-        PhoneOTP.objects.create(
-            phone=phone,
-            otp_code=otp_code,
-            expires_at=expires_at
-        )
-    except Exception:
-        pass
-
-    IN_MEMORY_OTP_STORE[phone] = {
-        'otp_code': otp_code,
-        'expires_at': expires_at,
-        'attempts': 0,
-        'created_at': timezone.now()
-    }
-
-    # Simulated SMS gateway dispatch log
-    print(f"\n[SMS GATEWAY DISPATCH] Sent to +91-{phone}: Your AuctionTicket Pro verification OTP is {otp_code}. Valid for 5 minutes.\n")
-
-    response_data = {
-        'message': f'OTP sent via SMS successfully to +91 {phone[:2]}******{phone[-2:]}.',
-        'phone': phone,
-        'expires_in_seconds': 300
-    }
-    # Only expose the OTP in DEBUG mode (for demo/testing convenience)
-    if settings.DEBUG:
-        response_data['demo_otp'] = otp_code
-
-    return Response(response_data, status=status.HTTP_200_OK)
-
-
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def verify_otp_view(request):
-    """
-    Verifies SMS OTP for the phone number and authenticates the user,
-    issuing a Django REST Framework auth token.
-    The hardcoded '123456' backdoor is only active when DEBUG=True.
-    """
-    raw_phone = request.data.get('phone', '')
-    otp_input = str(request.data.get('otp', '')).strip()
-
-    phone = normalize_phone_number(raw_phone)
-    if not phone:
-        return Response(
-            {'error': 'Invalid phone number format. 10-digit mobile number required.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    if not otp_input or len(otp_input) != 6:
-        return Response(
-            {'error': 'Please enter a valid 6-digit verification OTP.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Find the latest unused OTP for this phone (database first, in-memory fallback)
-    otp_record = None
-    try:
-        otp_record = PhoneOTP.objects.filter(phone=phone, is_used=False).first()
-    except Exception:
-        pass
-
-    actual_code = None
-    is_expired = False
-    attempts = 0
-
-    if otp_record:
-        actual_code = otp_record.otp_code
-        is_expired = otp_record.expires_at < timezone.now()
-        attempts = otp_record.attempts
-    elif phone in IN_MEMORY_OTP_STORE:
-        mem_otp = IN_MEMORY_OTP_STORE[phone]
-        actual_code = mem_otp['otp_code']
-        is_expired = mem_otp['expires_at'] < timezone.now()
-        attempts = mem_otp['attempts']
-    elif settings.DEBUG and otp_input == _DEBUG_DEMO_OTP and phone in _DEBUG_DEMO_PHONES:
-        # DEBUG-only backdoor — never active in production
-        actual_code = _DEBUG_DEMO_OTP
-
-    if not actual_code or is_expired:
-        return Response(
-            {'error': 'OTP has expired or is invalid. Please request a new OTP.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Brute-force protection: max 3 attempts
-    if attempts >= 3:
-        if otp_record:
-            otp_record.is_used = True
-            otp_record.save()
-        IN_MEMORY_OTP_STORE.pop(phone, None)
-        return Response(
-            {'error': 'Maximum verification attempts exceeded. Please request a new OTP.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # Check OTP — DEBUG shortcut is gated
-    is_valid = (actual_code == otp_input) or (
-        settings.DEBUG and otp_input == _DEBUG_DEMO_OTP and phone in _DEBUG_DEMO_PHONES
-    )
-
-    if not is_valid:
-        if otp_record:
-            otp_record.attempts += 1
-            otp_record.save()
-            remaining = 3 - otp_record.attempts
+    raw_phone = '' if raw_phone is None else str(raw_phone).strip()
+    if not raw_phone:
+        errors['phone'] = PHONE_ERROR_REQUIRED
+    else:
+        # Only digits, spaces, dashes and a leading +91 / 0 are acceptable characters
+        if re.search(r'[^\d\s+\-]', raw_phone):
+            errors['phone'] = PHONE_ERROR_INVALID
         else:
-            IN_MEMORY_OTP_STORE[phone]['attempts'] += 1
-            remaining = 3 - IN_MEMORY_OTP_STORE[phone]['attempts']
-        return Response(
-            {'error': f'Invalid verification OTP. {remaining} attempt(s) remaining.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            phone = normalize_phone_number(raw_phone)
+            if not phone or phone[0] not in '6789':
+                phone = None
+                errors['phone'] = PHONE_ERROR_INVALID
 
-    # Mark OTP as consumed
-    if otp_record:
-        otp_record.is_used = True
-        try:
-            otp_record.save()
-        except Exception:
-            pass
-    IN_MEMORY_OTP_STORE.pop(phone, None)
+    if not isinstance(password, str) or password == '':
+        errors['password'] = PASSWORD_ERROR_REQUIRED
+    elif len(password) < PASSWORD_MIN_LENGTH:
+        errors['password'] = f'Password must be at least {PASSWORD_MIN_LENGTH} characters.'
+    elif len(password) > PASSWORD_MAX_LENGTH:
+        errors['password'] = f'Password must be at most {PASSWORD_MAX_LENGTH} characters.'
 
-    # Find UserProfile by matching phone digits
+    return phone, errors
+
+
+class LoginRateThrottle(AnonRateThrottle):
+    """Slows down password guessing: 20 login attempts per minute per IP."""
+    scope = 'login'
+    rate = '20/min'
+
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+@throttle_classes([LoginRateThrottle])
+def login_view(request):
+    """
+    Phone number + password login.
+    Body: {phone, password, role?}. `role` ('user' | 'admin') is optional; when given,
+    the account must have that role (used by the Member / Admin login tabs).
+    Returns an auth Token and the user's profile.
+    """
+    password = request.data.get('password')
+    phone, errors = validate_login_input(request.data.get('phone'), password)
+    if errors:
+        first_error = errors.get('phone') or errors.get('password')
+        return Response({'error': first_error, 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Find the account(s) with this phone number and check the password
     profile = None
-    for p in UserProfile.objects.all():
-        if normalize_phone_number(p.phone) == phone:
-            profile = p
+    candidates = UserProfile.objects.select_related('user').filter(user__isnull=False)
+    for candidate in candidates:
+        if normalize_phone_number(candidate.phone) != phone:
+            continue
+        if candidate.user.is_active and candidate.user.check_password(password):
+            profile = candidate
             break
 
     if not profile:
-        # Create a new member account automatically for new phone numbers
-        username = f"user_{phone}"
-        email = f"{phone}@auctionticket.com"
-        user, _ = User.objects.get_or_create(username=username, defaults={'email': email})
-        user.set_unusable_password()
-        user.save()
-        profile_id = f"usr_{phone[-6:]}"
-        profile = UserProfile.objects.create(
-            id=profile_id,
-            user=user,
-            name=f"Member {phone[-4:]}",
-            email=email,
-            phone=f"+91 {phone[:5]} {phone[5:]}",
-            role='user',
-            city='',
-            kyc_status='Pending',
-            wallet_balance=Decimal('0.00'),
-            joined_date=timezone.now().strftime('%Y-%m-%d')
-        )
-    else:
-        user = profile.user
-        if not user:
-            user, _ = User.objects.get_or_create(username=profile.email, defaults={'email': profile.email})
-            profile.user = user
-            profile.save()
+        # Same message for unknown phone and wrong password (do not reveal which accounts exist)
+        return Response({'error': INVALID_CREDENTIALS}, status=status.HTTP_401_UNAUTHORIZED)
 
-    token, _ = Token.objects.get_or_create(user=user)
+    requested_role = request.data.get('role')
+    if requested_role in ('user', 'admin'):
+        is_admin_account = profile.role == 'admin' or profile.user.is_staff
+        if requested_role == 'admin' and not is_admin_account:
+            return Response(
+                {'error': 'This account is not an administrator. Please use Member Login.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if requested_role == 'user' and is_admin_account:
+            return Response(
+                {'error': 'This is an administrator account. Please use Admin Login.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
 
+    token, _ = Token.objects.get_or_create(user=profile.user)
     return Response({
         'token': token.key,
         'user': UserProfileSerializer(profile).data,
-        'message': f'Welcome, {profile.name}! Authenticated successfully via SMS OTP.'
-    }, status=status.HTTP_200_OK)
-
-
-# --- Authentication & Identity Endpoints ---
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def login_view(request):
-    """
-    Legacy password authentication endpoint.
-    Accepts email & password, validates hash, and returns an auth Token and Profile.
-    """
-    email = request.data.get('email', '').strip().lower()
-    password = request.data.get('password', '')
-
-    if not email or not password:
-        return Response({'error': 'Email and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Find user by email or username
-    try:
-        user = User.objects.get(email__iexact=email)
-    except User.DoesNotExist:
-        try:
-            user = User.objects.get(username__iexact=email)
-        except User.DoesNotExist:
-            return Response({'error': 'Invalid credentials. Please verify your email and password.'}, status=status.HTTP_401_UNAUTHORIZED)
-
-    if not user.check_password(password):
-        return Response({'error': 'Invalid credentials. Please verify your email and password.'}, status=status.HTTP_401_UNAUTHORIZED)
-
-    token, _ = Token.objects.get_or_create(user=user)
-    profile = getattr(user, 'profile', None)
-
-    return Response({
-        'token': token.key,
-        'user': UserProfileSerializer(profile).data if profile else {
-            'id': str(user.id),
-            'name': user.get_full_name() or user.username,
-            'email': user.email,
-            'role': 'admin' if user.is_staff else 'user'
-        }
+        'message': f'Welcome, {profile.name}!'
     })
 
 

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     UserProfile, ValueTier, AuctionScheme, Ticket,
-    MonthlyPayment, AuctionRound, AuctionBid, AuctionRecord, PaymentLedgerEntry, PhoneOTP,
+    MonthlyPayment, AuctionRound, AuctionBid, AuctionRecord, PaymentLedgerEntry,
     PrizePayout, AuctionCorrection, PrizePayoutLedgerEntry
 )
 
@@ -52,13 +52,6 @@ class PaymentLedgerEntryAdmin(admin.ModelAdmin):
     list_display = ('id', 'payment', 'user', 'entry_type', 'amount', 'new_status', 'transaction_ref', 'created_at')
     list_filter = ('entry_type', 'new_status')
     search_fields = ('transaction_ref', 'receipt_number', 'user__name')
-
-@admin.register(PhoneOTP)
-class PhoneOTPAdmin(admin.ModelAdmin):
-    list_display = ('id', 'phone', 'otp_code', 'attempts', 'is_used', 'expires_at', 'created_at')
-    list_filter = ('is_used', 'created_at')
-    search_fields = ('phone', 'otp_code')
-
 
 @admin.register(PrizePayout)
 class PrizePayoutAdmin(admin.ModelAdmin):

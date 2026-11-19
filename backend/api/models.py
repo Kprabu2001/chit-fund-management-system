@@ -381,23 +381,6 @@ class PaymentLedgerEntry(models.Model):
         return f"[{self.entry_type}] {self.payment.id}: ₹{self.amount} ({self.new_status})"
 
 
-class PhoneOTP(models.Model):
-    """Model to store SMS verification OTPs for phone-based authentication"""
-    id = models.BigAutoField(primary_key=True)
-    phone = models.CharField(max_length=20, db_index=True)
-    otp_code = models.CharField(max_length=6)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
-    attempts = models.IntegerField(default=0)
-    is_used = models.BooleanField(default=False)
-
-    class Meta:
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"OTP for {self.phone} - {'Used' if self.is_used else 'Active'}"
-
-
 class RazorpayQRCode(models.Model):
     """
     Stores dynamic, amount-specific Razorpay UPI QR code sessions.

@@ -4,12 +4,13 @@ from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
 from api.models import UserProfile, ValueTier, AuctionScheme, Ticket, MonthlyPayment
 from decimal import Decimal
-from django.test import override_settings
+from django.core.cache import cache
 
 class AuthAndSecurityTests(APITestCase):
     def setUp(self):
+        cache.clear()  # reset login throttle between tests
         # Create Member User
-        self.user = User.objects.create_user(username='user@auctionticket.com', email='user@auctionticket.com', password='user123')
+        self.user = User.objects.create_user(username='user@auctionticket.com', email='user@auctionticket.com', password='rahul')
         self.user_token = Token.objects.create(user=self.user)
         self.user_profile = UserProfile.objects.create(
             id='usr_01', user=self.user, name='Rahul Sharma', email='user@auctionticket.com',
@@ -17,7 +18,7 @@ class AuthAndSecurityTests(APITestCase):
         )
 
         # Create Other Member User
-        self.other_user = User.objects.create_user(username='other@auctionticket.com', email='other@auctionticket.com', password='other123')
+        self.other_user = User.objects.create_user(username='other@auctionticket.com', email='other@auctionticket.com', password='priya')
         self.other_token = Token.objects.create(user=self.other_user)
         self.other_profile = UserProfile.objects.create(
             id='usr_02', user=self.other_user, name='Priya Sundaram', email='other@auctionticket.com',
@@ -25,7 +26,7 @@ class AuthAndSecurityTests(APITestCase):
         )
 
         # Create Admin User
-        self.admin = User.objects.create_user(username='admin@auctionticket.com', email='admin@auctionticket.com', password='admin123', is_staff=True)
+        self.admin = User.objects.create_user(username='admin@auctionticket.com', email='admin@auctionticket.com', password='admin', is_staff=True)
         self.admin_token = Token.objects.create(user=self.admin)
         self.admin_profile = UserProfile.objects.create(
             id='adm_01', user=self.admin, name='Admin Chief', email='admin@auctionticket.com',
@@ -64,21 +65,94 @@ class AuthAndSecurityTests(APITestCase):
             due_date='2026-01-10', status='DUE'
         )
 
-    def test_login_valid_credentials(self):
-        res = self.client.post('/api/auth/login/', {'email': 'user@auctionticket.com', 'password': 'user123'})
+    # --- Phone + password login ---
+    def test_login_valid_member(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9876543210', 'password': 'rahul'})
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertIn('token', res.data)
         self.assertEqual(res.data['token'], self.user_token.key)
         self.assertEqual(res.data['user']['id'], 'usr_01')
+        self.assertEqual(res.data['user']['role'], 'user')
 
-    def test_login_invalid_password(self):
-        res = self.client.post('/api/auth/login/', {'email': 'user@auctionticket.com', 'password': 'wrongpassword'})
-        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertIn('error', res.data)
+    def test_login_valid_priya(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9822011223', 'password': 'priya'})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['user']['id'], 'usr_02')
 
-    def test_login_nonexistent_email(self):
-        res = self.client.post('/api/auth/login/', {'email': 'ghost@example.com', 'password': 'user123'})
+    def test_login_valid_admin(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9999988888', 'password': 'admin', 'role': 'admin'})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['user']['role'], 'admin')
+
+    def test_login_accepts_formatted_phone(self):
+        for phone in ('+91 98765 43210', '+919876543210', '09876543210', '98765-43210'):
+            res = self.client.post('/api/auth/login/', {'phone': phone, 'password': 'rahul'})
+            self.assertEqual(res.status_code, status.HTTP_200_OK, phone)
+
+    def test_login_wrong_password(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9876543210', 'password': 'wrongpass'})
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(res.data['error'], 'Invalid phone number or password.')
+
+    def test_login_unknown_phone_gives_same_error(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9123456780', 'password': 'rahul'})
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(res.data['error'], 'Invalid phone number or password.')
+
+    def test_login_phone_validation(self):
+        bad_phones = {
+            '': 'Phone number is required.',
+            '12345': 'Enter a valid 10-digit mobile number starting with 6, 7, 8 or 9.',
+            '5876543210': 'Enter a valid 10-digit mobile number starting with 6, 7, 8 or 9.',
+            '98765abcde': 'Enter a valid 10-digit mobile number starting with 6, 7, 8 or 9.',
+            '98765432101': 'Enter a valid 10-digit mobile number starting with 6, 7, 8 or 9.',
+        }
+        for phone, message in bad_phones.items():
+            res = self.client.post('/api/auth/login/', {'phone': phone, 'password': 'rahul'})
+            self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST, phone)
+            self.assertEqual(res.data['errors']['phone'], message, phone)
+
+    def test_login_password_validation(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9876543210', 'password': ''})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(res.data['errors']['password'], 'Password is required.')
+
+        res = self.client.post('/api/auth/login/', {'phone': '9876543210', 'password': 'abc'})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('at least 5', res.data['errors']['password'])
+
+        res = self.client.post('/api/auth/login/', {'phone': '9876543210', 'password': 'x' * 129})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('at most 128', res.data['errors']['password'])
+
+    def test_login_missing_fields(self):
+        res = self.client.post('/api/auth/login/', {})
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('phone', res.data['errors'])
+        self.assertIn('password', res.data['errors'])
+
+    def test_member_cannot_use_admin_login(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9876543210', 'password': 'rahul', 'role': 'admin'})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_cannot_use_member_login(self):
+        res = self.client.post('/api/auth/login/', {'phone': '9999988888', 'password': 'admin', 'role': 'user'})
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_wrong_password_checked_before_role(self):
+        # Role mismatch must not reveal that the account exists / is an admin
+        res = self.client.post('/api/auth/login/', {'phone': '9999988888', 'password': 'nope1', 'role': 'user'})
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_otp_endpoints_removed(self):
+        self.assertEqual(self.client.post('/api/auth/send-otp/', {'phone': '9876543210'}).status_code, 404)
+        self.assertEqual(self.client.post('/api/auth/verify-otp/', {'phone': '9876543210', 'otp': '123456'}).status_code, 404)
+
+    def test_login_is_rate_limited(self):
+        statuses = [
+            self.client.post('/api/auth/login/', {'phone': '9876543210', 'password': 'wrongpass'}).status_code
+            for _ in range(25)
+        ]
+        self.assertIn(status.HTTP_429_TOO_MANY_REQUESTS, statuses)
 
     def test_unauthenticated_request_rejected(self):
         res = self.client.get('/api/tickets/')
@@ -120,62 +194,3 @@ class AuthAndSecurityTests(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
         self.user_profile.refresh_from_db()
         self.assertEqual(self.user_profile.role, 'user')
-
-    # --- Phone SMS OTP Tests ---
-    @override_settings(DEBUG=True)
-    def test_send_otp_valid_phone(self):
-        res = self.client.post('/api/auth/send-otp/', {'phone': '+91 98765 43210'})
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertIn('demo_otp', res.data)
-        self.assertEqual(len(res.data['demo_otp']), 6)
-        self.assertIn('message', res.data)
-
-    def test_send_otp_invalid_phone(self):
-        res = self.client.post('/api/auth/send-otp/', {'phone': '123'})
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('error', res.data)
-
-    def test_send_otp_rate_limiting(self):
-        # 1st request succeeds
-        res1 = self.client.post('/api/auth/send-otp/', {'phone': '9876543210'})
-        self.assertEqual(res1.status_code, status.HTTP_200_OK)
-
-        # Immediate 2nd request within 30 seconds is throttled
-        res2 = self.client.post('/api/auth/send-otp/', {'phone': '9876543210'})
-        self.assertEqual(res2.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertIn('error', res2.data)
-
-    @override_settings(DEBUG=True)
-    def test_verify_otp_success_existing_user(self):
-        # Send OTP
-        res_send = self.client.post('/api/auth/send-otp/', {'phone': '+91 98765 43210'})
-        otp_code = res_send.data['demo_otp']
-
-        # Verify OTP
-        res_verify = self.client.post('/api/auth/verify-otp/', {'phone': '9876543210', 'otp': otp_code})
-        self.assertEqual(res_verify.status_code, status.HTTP_200_OK)
-        self.assertIn('token', res_verify.data)
-        self.assertEqual(res_verify.data['user']['id'], 'usr_01')
-        self.assertEqual(res_verify.data['user']['name'], 'Rahul Sharma')
-
-    def test_verify_otp_invalid_code(self):
-        # Send OTP
-        self.client.post('/api/auth/send-otp/', {'phone': '9822011223'})
-
-        # Verify with wrong OTP
-        res = self.client.post('/api/auth/verify-otp/', {'phone': '9822011223', 'otp': '000000'})
-        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('error', res.data)
-
-    @override_settings(DEBUG=True)
-    def test_verify_otp_auto_registers_new_member(self):
-        new_phone = '9123456789'
-        res_send = self.client.post('/api/auth/send-otp/', {'phone': new_phone})
-        otp = res_send.data['demo_otp']
-
-        res_verify = self.client.post('/api/auth/verify-otp/', {'phone': new_phone, 'otp': otp})
-        self.assertEqual(res_verify.status_code, status.HTTP_200_OK)
-        self.assertIn('token', res_verify.data)
-        self.assertEqual(res_verify.data['user']['phone'], f"+91 {new_phone[:5]} {new_phone[5:]}")
-        self.assertEqual(res_verify.data['user']['role'], 'user')
-

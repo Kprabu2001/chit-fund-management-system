@@ -1,97 +1,126 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { api } from '../services/api';
+import { sanitizePhoneInput, validatePhone, validatePassword, validateLoginForm } from '../utils/validation';
+
+const DEMO_ACCOUNTS = {
+  user: [
+    { label: '👤 Rahul (Member)', phone: '9876543210', password: 'rahul' },
+    { label: '👩 Priya (Member)', phone: '9822011223', password: 'priya' }
+  ],
+  admin: [
+    { label: '🛡️ Chief Administrator', phone: '9999988888', password: 'admin' }
+  ]
+};
+
+const fieldErrorStyle = { color: 'var(--danger-text)', fontSize: '0.74rem', marginTop: '0.3rem', display: 'block' };
 
 export default function LoginPage({ onLoginSuccess, onShowToast }) {
   // Selected role: 'user' (Member) or 'admin'
   const [selectedRole, setSelectedRole] = useState('user');
 
-  // Phone OTP state
-  const [step, setStep] = useState('phone'); // 'phone' | 'otp'
-  const [phone, setPhone] = useState('9876543210');
-  const [otp, setOtp] = useState('');
-  const [demoOtpHint, setDemoOtpHint] = useState('');
-  const [isOffline, setIsOffline] = useState(false);
-  const [countdown, setCountdown] = useState(0);
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [touched, setTouched] = useState({ phone: false, password: false });
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Update phone defaults when switching role tabs
+  const resetForm = () => {
+    setPhone('');
+    setPassword('');
+    setShowPassword(false);
+    setTouched({ phone: false, password: false });
+    setFieldErrors({});
+    setErrorMessage('');
+  };
+
   const handleSelectRole = (role) => {
     setSelectedRole(role);
-    setStep('phone');
-    setOtp('');
-    setErrorMessage('');
-    if (role === 'admin') {
-      setPhone('9999988888');
-    } else {
-      setPhone('9876543210');
-    }
+    resetForm();
   };
 
-  // 30s Countdown timer for OTP resend
-  useEffect(() => {
-    let timer;
-    if (countdown > 0) {
-      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [countdown]);
+  // Live validation once a field has been touched
+  const handlePhoneChange = (value) => {
+    const cleaned = sanitizePhoneInput(value);
+    setPhone(cleaned);
+    setErrorMessage('');
+    if (touched.phone) setFieldErrors((prev) => ({ ...prev, phone: validatePhone(cleaned) }));
+  };
 
-  // Send OTP
-  const handleSendOtp = async (targetPhone = phone) => {
-    if (!targetPhone || targetPhone.trim().length < 10) {
-      setErrorMessage('Please enter a valid 10-digit mobile number.');
+  const handlePasswordChange = (value) => {
+    setPassword(value);
+    setErrorMessage('');
+    if (touched.password) setFieldErrors((prev) => ({ ...prev, password: validatePassword(value) }));
+  };
+
+  const handleBlur = (field) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+    setFieldErrors((prev) => ({
+      ...prev,
+      [field]: field === 'phone' ? validatePhone(phone) : validatePassword(password)
+    }));
+  };
+
+  const signIn = async (phoneValue, passwordValue, role) => {
+    const errors = validateLoginForm(phoneValue, passwordValue);
+    setTouched({ phone: true, password: true });
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setErrorMessage('');
       return;
     }
+
     setIsSubmitting(true);
     setErrorMessage('');
     try {
-      const res = await api.sendOtp(targetPhone);
-      setStep('otp');
-      setCountdown(30);
-      setIsOffline(Boolean(res.is_offline));
-      if (res.demo_otp) {
-        setDemoOtpHint(res.demo_otp);
-        setOtp(res.demo_otp); // auto-fill for frictionless testing
-      }
-      onShowToast?.(res.message || 'OTP sent successfully!', 'success');
-    } catch (err) {
-      setErrorMessage(err.message || 'Failed to dispatch SMS OTP. Verify phone number.');
-      onShowToast?.(err.message || 'Failed to send OTP.', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Verify OTP
-  const handleVerifyOtp = async (e) => {
-    if (e) e.preventDefault();
-    if (!otp || otp.trim().length !== 6) {
-      setErrorMessage('Please enter the 6-digit OTP code.');
-      return;
-    }
-    setIsSubmitting(true);
-    setErrorMessage('');
-    try {
-      const res = await api.verifyOtp(phone, otp.trim());
+      const res = await api.login(phoneValue, passwordValue, role);
       onShowToast?.(res.message || `Welcome, ${res.user.name}!`, 'success');
       onLoginSuccess?.(res.user);
     } catch (err) {
-      setErrorMessage(err.message || 'Invalid or expired OTP code.');
-      onShowToast?.(err.message || 'Verification failed.', 'error');
+      if (err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
+        setFieldErrors(err.fieldErrors);
+      }
+      setErrorMessage(err.message || 'Login failed. Please try again.');
+      onShowToast?.(err.message || 'Login failed.', 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // 1-Click Fast Login Trigger
-  const handleQuickDemoClick = (demoPhone, role) => {
-    setSelectedRole(role);
-    setPhone(demoPhone);
-    setOtp('');
-    handleSendOtp(demoPhone);
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    signIn(phone, password, selectedRole);
   };
+
+  // 1-Click Fast Login
+  const handleQuickDemoClick = (account) => {
+    setPhone(account.phone);
+    setPassword(account.password);
+    signIn(account.phone, account.password, selectedRole);
+  };
+
+  const tabStyle = (role, activeColor) => ({
+    padding: '0.55rem 0.5rem',
+    borderRadius: 'var(--radius-xs)',
+    border: 'none',
+    background: selectedRole === role ? 'var(--bg-card)' : 'transparent',
+    color: selectedRole === role ? activeColor : 'var(--text-secondary)',
+    fontWeight: selectedRole === role ? 700 : 500,
+    fontSize: '0.85rem',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.35rem',
+    boxShadow: selectedRole === role ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
+    transition: 'var(--transition-fast)'
+  });
+
+  const isAdminTab = selectedRole === 'admin';
+  const showPhoneError = touched.phone && fieldErrors.phone;
+  const showPasswordError = touched.password && fieldErrors.password;
 
   return (
     <div style={{
@@ -132,7 +161,7 @@ export default function LoginPage({ onLoginSuccess, onShowToast }) {
             KD Chit
           </h1>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            Sign in with your mobile number to access your passbook
+            Sign in with your mobile number and password
           </p>
         </div>
 
@@ -147,49 +176,11 @@ export default function LoginPage({ onLoginSuccess, onShowToast }) {
           border: '1px solid var(--border-subtle)',
           marginBottom: '1.25rem'
         }}>
-          <button
-            type="button"
-            onClick={() => handleSelectRole('user')}
-            style={{
-              padding: '0.55rem 0.5rem',
-              borderRadius: 'var(--radius-xs)',
-              border: 'none',
-              background: selectedRole === 'user' ? 'var(--bg-card)' : 'transparent',
-              color: selectedRole === 'user' ? 'var(--cyan-500)' : 'var(--text-secondary)',
-              fontWeight: selectedRole === 'user' ? 700 : 500,
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.35rem',
-              boxShadow: selectedRole === 'user' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-              transition: 'var(--transition-fast)'
-            }}
-          >
+          <button type="button" onClick={() => handleSelectRole('user')} style={tabStyle('user', 'var(--cyan-500)')}>
             <span>👤</span>
             <span>Member Login</span>
           </button>
-          <button
-            type="button"
-            onClick={() => handleSelectRole('admin')}
-            style={{
-              padding: '0.55rem 0.5rem',
-              borderRadius: 'var(--radius-xs)',
-              border: 'none',
-              background: selectedRole === 'admin' ? 'var(--bg-card)' : 'transparent',
-              color: selectedRole === 'admin' ? 'var(--danger-text)' : 'var(--text-secondary)',
-              fontWeight: selectedRole === 'admin' ? 700 : 500,
-              fontSize: '0.85rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '0.35rem',
-              boxShadow: selectedRole === 'admin' ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
-              transition: 'var(--transition-fast)'
-            }}
-          >
+          <button type="button" onClick={() => handleSelectRole('admin')} style={tabStyle('admin', 'var(--danger-text)')}>
             <span>🛡️</span>
             <span>Admin Login</span>
           </button>
@@ -207,51 +198,38 @@ export default function LoginPage({ onLoginSuccess, onShowToast }) {
             fontSize: '0.7rem',
             textTransform: 'uppercase',
             fontWeight: 700,
-            color: selectedRole === 'admin' ? 'var(--rose-400)' : 'var(--cyan-500)',
+            color: isAdminTab ? 'var(--rose-400)' : 'var(--cyan-500)',
             marginBottom: '0.45rem',
             textAlign: 'center',
             letterSpacing: '0.04em'
           }}>
             ⚡ 1-Click Demo Login
           </div>
-
-          {selectedRole === 'user' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isAdminTab ? '1fr' : '1fr 1fr', gap: '0.4rem' }}>
+            {DEMO_ACCOUNTS[selectedRole].map((account) => (
               <button
+                key={account.phone}
                 type="button"
                 className="btn btn-outline btn-sm"
-                style={{ fontSize: '0.78rem', padding: '0.45rem 0.35rem', justifyContent: 'center' }}
+                style={{
+                  width: '100%',
+                  fontSize: '0.78rem',
+                  padding: '0.45rem 0.35rem',
+                  justifyContent: 'center',
+                  ...(isAdminTab ? { color: 'var(--danger-text)', borderColor: 'var(--danger-tint-border)' } : {})
+                }}
                 disabled={isSubmitting}
-                onClick={() => handleQuickDemoClick('9876543210', 'user')}
+                onClick={() => handleQuickDemoClick(account)}
               >
-                👤 Rahul (Member)
+                {account.label}
               </button>
-              <button
-                type="button"
-                className="btn btn-outline btn-sm"
-                style={{ fontSize: '0.78rem', padding: '0.45rem 0.35rem', justifyContent: 'center' }}
-                disabled={isSubmitting}
-                onClick={() => handleQuickDemoClick('9822011223', 'user')}
-              >
-                👩 Priya (Member)
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-outline btn-sm"
-              style={{ width: '100%', fontSize: '0.78rem', padding: '0.45rem 0.35rem', justifyContent: 'center', color: 'var(--danger-text)', borderColor: 'var(--danger-tint-border)' }}
-              disabled={isSubmitting}
-              onClick={() => handleQuickDemoClick('9999988888', 'admin')}
-            >
-              🛡️ Chief Administrator
-            </button>
-          )}
+            ))}
+          </div>
         </div>
 
-        {/* Error Message */}
+        {/* Server / credentials error */}
         {errorMessage && (
-          <div style={{
+          <div role="alert" style={{
             background: 'var(--danger-tint)',
             border: '1px solid var(--danger-tint-border)',
             color: 'var(--danger-text)',
@@ -265,152 +243,98 @@ export default function LoginPage({ onLoginSuccess, onShowToast }) {
           </div>
         )}
 
-        {/* Mobile Number Step */}
-        {step === 'phone' ? (
-          <form onSubmit={(e) => { e.preventDefault(); handleSendOtp(); }}>
-            <div className="form-field" style={{ marginBottom: '1rem' }}>
-              <label className="form-label-text" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.4rem', display: 'block' }}>
-                {selectedRole === 'admin' ? 'Administrator Mobile Number' : 'Subscriber Mobile Number'}
-              </label>
-              <div style={{ display: 'flex', gap: '0.4rem' }}>
-                <span style={{
-                  background: 'var(--surface-subtle)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '0.65rem 0.75rem',
-                  color: 'var(--text-secondary)',
-                  fontSize: '0.9rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  fontWeight: 600
-                }}>
-                  🇮🇳 +91
-                </span>
-                <input
-                  type="tel"
-                  className="form-input-text"
-                  style={{ flex: 1, fontSize: '1rem', letterSpacing: '0.5px' }}
-                  placeholder="Enter 10-digit mobile number"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  disabled={isSubmitting}
-                  required
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className={selectedRole === 'admin' ? 'btn btn-danger' : 'btn btn-primary'}
-              style={{ width: '100%', padding: '0.75rem', fontWeight: 700, fontSize: '0.9rem', marginTop: '0.5rem' }}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Sending OTP...' : 'Send OTP'}
-            </button>
-          </form>
-        ) : (
-          /* OTP Verification Step */
-          <form onSubmit={handleVerifyOtp}>
-            <div style={{
-              background: 'var(--accent-tint-soft)',
-              border: '1px solid var(--accent-tint-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '0.65rem 0.85rem',
-              marginBottom: '1rem',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <div>
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>OTP sent to:</span>
-                <strong style={{ color: 'var(--text-main)', fontSize: '0.9rem' }}>+91 {phone}</strong>
-              </div>
-              <button
-                type="button"
-                style={{ background: 'transparent', border: 'none', color: 'var(--cyan-500)', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}
-                onClick={() => { setStep('phone'); setErrorMessage(''); }}
-              >
-                Change
-              </button>
-            </div>
-
-            {demoOtpHint && (
-              <div
-                style={{
-                  background: 'var(--ok-tint)',
-                  border: '1px solid var(--ok-tint-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '0.6rem',
-                  marginBottom: '1rem',
-                  textAlign: 'center',
-                  cursor: 'pointer'
-                }}
-                onClick={() => setOtp(demoOtpHint)}
-                title="Click to auto-fill"
-              >
-                <span style={{ fontSize: '0.7rem', color: 'var(--ok-text)', display: 'block', fontWeight: 600 }}>
-                  📩 Received OTP:
-                </span>
-                <span style={{ color: 'var(--ok-text)', fontSize: '1.3rem', letterSpacing: '6px', fontWeight: 800 }}>
-                  {demoOtpHint}
-                </span>
-                <span style={{ fontSize: '0.68rem', color: 'var(--ok-text)', display: 'block', marginTop: '0.15rem' }}>
-                  (Click to auto-fill)
-                </span>
-              </div>
-            )}
-
-            <div className="form-field" style={{ marginBottom: '1rem' }}>
-              <label className="form-label-text" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.4rem', display: 'block' }}>
-                Enter 6-Digit OTP Code
-              </label>
+        <form onSubmit={handleSubmit} noValidate>
+          {/* Phone number */}
+          <div className="form-field" style={{ marginBottom: '1rem' }}>
+            <label htmlFor="login-phone" className="form-label-text" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.4rem', display: 'block' }}>
+              {isAdminTab ? 'Administrator Mobile Number' : 'Mobile Number'}
+            </label>
+            <div style={{ display: 'flex', gap: '0.4rem' }}>
+              <span style={{
+                background: 'var(--surface-subtle)',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0.65rem 0.75rem',
+                color: 'var(--text-secondary)',
+                fontSize: '0.9rem',
+                display: 'flex',
+                alignItems: 'center',
+                fontWeight: 600
+              }}>
+                🇮🇳 +91
+              </span>
               <input
-                type="text"
-                maxLength={6}
-                className="form-input-text"
-                style={{
-                  textAlign: 'center',
-                  fontSize: '1.4rem',
-                  letterSpacing: '8px',
-                  fontWeight: 700,
-                  color: 'var(--cyan-500)'
-                }}
-                placeholder="••••••"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                id="login-phone"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
+                className={`form-input-text${showPhoneError ? ' has-error' : ''}`}
+                style={{ flex: 1, fontSize: '1rem', letterSpacing: '0.5px' }}
+                placeholder="10-digit mobile number"
+                value={phone}
+                maxLength={10}
+                onChange={(e) => handlePhoneChange(e.target.value)}
+                onBlur={() => handleBlur('phone')}
                 disabled={isSubmitting}
-                required
+                aria-invalid={Boolean(showPhoneError)}
                 autoFocus
               />
             </div>
+            {showPhoneError && <span role="alert" style={fieldErrorStyle}>{fieldErrors.phone}</span>}
+          </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', fontSize: '0.78rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>Didn't receive OTP?</span>
-              {countdown > 0 ? (
-                <span style={{ color: 'var(--text-secondary)' }}>Resend in {countdown}s</span>
-              ) : (
-                <button
-                  type="button"
-                  style={{ background: 'transparent', border: 'none', color: 'var(--cyan-500)', cursor: 'pointer', fontWeight: 600 }}
-                  onClick={() => handleSendOtp(phone)}
-                  disabled={isSubmitting}
-                >
-                  Resend OTP
-                </button>
-              )}
+          {/* Password */}
+          <div className="form-field" style={{ marginBottom: '1rem' }}>
+            <label htmlFor="login-password" className="form-label-text" style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)', marginBottom: '0.4rem', display: 'block' }}>
+              Password
+            </label>
+            <div style={{ position: 'relative' }}>
+              <input
+                id="login-password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                className={`form-input-text${showPasswordError ? ' has-error' : ''}`}
+                style={{ width: '100%', fontSize: '1rem', paddingRight: '4.25rem' }}
+                placeholder="Enter your password"
+                value={password}
+                maxLength={128}
+                onChange={(e) => handlePasswordChange(e.target.value)}
+                onBlur={() => handleBlur('password')}
+                disabled={isSubmitting}
+                aria-invalid={Boolean(showPasswordError)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                style={{
+                  position: 'absolute',
+                  right: '0.6rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--cyan-500)',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? 'Hide' : 'Show'}
+              </button>
             </div>
+            {showPasswordError && <span role="alert" style={fieldErrorStyle}>{fieldErrors.password}</span>}
+          </div>
 
-            <button
-              type="submit"
-              className={selectedRole === 'admin' ? 'btn btn-danger' : 'btn btn-primary'}
-              style={{ width: '100%', padding: '0.75rem', fontWeight: 700, fontSize: '0.9rem' }}
-              disabled={isSubmitting || otp.length !== 6}
-            >
-              {isSubmitting ? 'Verifying...' : `Verify & Sign In`}
-            </button>
-          </form>
-        )}
+          <button
+            type="submit"
+            className={isAdminTab ? 'btn btn-danger' : 'btn btn-primary'}
+            style={{ width: '100%', padding: '0.75rem', fontWeight: 700, fontSize: '0.9rem', marginTop: '0.5rem' }}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Signing in...' : (isAdminTab ? 'Sign In as Admin' : 'Sign In')}
+          </button>
+        </form>
       </div>
     </div>
   );

@@ -277,106 +277,34 @@ export const normalizeUser = (u) => {
 };
 
 export const api = {
-  // --- 1. Authentication (Phone Number OTP via SMS) ---
-  async sendOtp(phone) {
+  // --- 1. Authentication (Phone number + password) ---
+  // role is optional: 'user' (Member tab) or 'admin' (Admin tab); the server checks the account matches
+  async login(phone, password, role) {
     try {
-      const res = await fetch(`${BASE_URL}/auth/send-otp/`, {
+      const res = await fetch(`${BASE_URL}/auth/login/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, password, role }),
         signal: AbortSignal.timeout(45000)
       });
       const data = await parseJsonResponse(res);
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to send OTP via SMS.');
-      }
-      return data;
-    } catch (err) {
-      // If the error is a real validation error from the server, re-throw it.
-      const isNetworkOrProxy = !err.message ||
-        err.message === 'SERVER_HTML_FALLBACK' ||
-        err.message.includes('JSON') ||
-        err.message.includes('Unexpected token') ||
-        err.message.includes('fetch') ||
-        err.message.includes('Network') ||
-        err.message.includes('Failed to fetch') ||
-        err.message.includes('aborted');
-
-      if (!isNetworkOrProxy) {
-        throw err;
-      }
-      // Backend is unreachable — surface a clear error so the user starts the server.
-      throw new Error(
-        'Cannot connect to the backend server. Please start Django on http://127.0.0.1:8000 and try again.'
-      );
-    }
-  },
-
-  async verifyOtp(phone, otp) {
-    try {
-      const res = await fetch(`${BASE_URL}/auth/verify-otp/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, otp }),
-        signal: AbortSignal.timeout(45000)
-      });
-      const data = await parseJsonResponse(res);
-      if (!res.ok) {
-        throw new Error(data.error || 'Invalid OTP. Please check the code and try again.');
+        const error = new Error(data.error || data.detail || 'Invalid phone number or password.');
+        error.fieldErrors = data.errors || {};
+        error.isServerError = true;
+        throw error;
       }
       setToken(data.token);
       const user = normalizeUser(data.user);
       this.setCurrentUser(user, data.token);
       return { token: data.token, user, message: data.message };
     } catch (err) {
-      const isNetworkOrProxy = !err.message ||
-        err.message === 'SERVER_HTML_FALLBACK' ||
-        err.message.includes('JSON') ||
-        err.message.includes('Unexpected token') ||
-        err.message.includes('fetch') ||
-        err.message.includes('Network') ||
-        err.message.includes('Failed to fetch') ||
-        err.message.includes('aborted');
-
-      if (!isNetworkOrProxy) {
-        throw err;
-      }
-      // Backend is unreachable — do not silently bypass authentication.
+      // Real answers from the server (wrong password, validation, throttling) are shown as they are
+      if (err.isServerError) throw err;
+      // Otherwise the backend is unreachable — never silently bypass authentication
       throw new Error(
         'Cannot connect to the backend server. Please start Django on http://127.0.0.1:8000 and try again.'
       );
-    }
-  },
-
-  async login(email, password) {
-    try {
-      const res = await fetch(`${BASE_URL}/auth/login/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        signal: AbortSignal.timeout(45000)
-      });
-      const data = await parseJsonResponse(res);
-      if (!res.ok) {
-        throw new Error(data.error || 'Invalid credentials.');
-      }
-      setToken(data.token);
-      const user = normalizeUser(data.user);
-      this.setCurrentUser(user, data.token);
-      return { token: data.token, user };
-    } catch (err) {
-      const isHtmlOrNetwork = !err.message ||
-        err.message === 'SERVER_HTML_FALLBACK' ||
-        err.message.includes('JSON') ||
-        err.message.includes('Unexpected token') ||
-        err.message.includes('fetch') ||
-        err.message.includes('Network') ||
-        err.message.includes('Failed to fetch');
-
-      if (!isHtmlOrNetwork) {
-        throw err;
-      }
-      throw new Error('Unable to connect to backend server. Make sure Django is running on http://127.0.0.1:8000');
     }
   },
 

@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     UserProfileViewSet, ValueTierViewSet, AuctionSchemeViewSet,
     TicketViewSet, MonthlyPaymentViewSet, overview_stats,
-    login_view, me_view, profile_view, logout_view, send_otp_view, verify_otp_view,
+    login_view, me_view, profile_view, logout_view,
     razorpay_webhook_view
 )
 from .winner_views import declare_winner_view, revert_winner_view
@@ -18,8 +18,6 @@ router.register(r'payments', MonthlyPaymentViewSet, basename='payment')
 
 urlpatterns = [
     # Auth endpoints
-    path('auth/send-otp/', send_otp_view, name='auth-send-otp'),
-    path('auth/verify-otp/', verify_otp_view, name='auth-verify-otp'),
     path('auth/login/', login_view, name='auth-login'),
     path('auth/me/', me_view, name='auth-me'),
     path('auth/profile/', profile_view, name='auth-profile'),
